@@ -2828,6 +2828,24 @@ namespace expr
 	return VisitAction::doKids ();
       }
     };
+    
+    template <typename T>
+    struct ContainsOp : public std::unary_function<Expr,VisitAction>
+    {
+      bool found;
+      
+      ContainsOp<T> () : found(false) {}
+      
+      VisitAction operator() (Expr exp)
+      {
+        if (found || isOpX<T>(exp))
+        {
+          found = true;
+          return VisitAction::skipKids ();
+        }
+        return VisitAction::doKids ();
+      }
+    };
 
     struct SIZE : public std::unary_function<Expr,VisitAction>
     {
@@ -2985,6 +3003,13 @@ namespace expr
     return cv.found;
   }  
 
+  /** Returns true if e1 contains applications of T */
+  template <typename M> inline bool containsOp (Expr e1)
+  {
+    ContainsOp<M> co;
+    dagVisit (co, e1);
+    return co.found;
+  }
 
   namespace op
   {

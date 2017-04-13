@@ -20,7 +20,7 @@ namespace ufo
     ExprSet v; // existentially quantified vars
     ExprVector stVars;
     
-    ExprVector tConjs;
+    ExprSet tConjs;
     ExprSet usedConjs;
     ExprMap defMap;
     ExprSet conflictVars;

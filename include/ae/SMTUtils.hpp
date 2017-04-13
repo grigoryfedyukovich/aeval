@@ -143,7 +143,7 @@ namespace ufo
     Expr removeRedundantConjuncts(Expr exp)
     {
       ExprSet newCnjs;
-      ExprVector conjs;
+      ExprSet conjs;
       getConj(exp, conjs);
       
       if (conjs.size() < 2) return exp;
@@ -159,6 +159,30 @@ namespace ufo
       
       return conjoin(newCnjs, efac);
     }
+    
+    /**
+     * Remove some redundant disjuncts from the formula
+     */
+    Expr removeRedundantDisjuncts(Expr exp)
+    {
+      ExprSet newDisj;
+      ExprSet disjs;
+      getDisj(exp, disjs);
+      
+      if (disjs.size() < 2) return exp;
+      
+      for (auto & disj : disjs)      // GF: todo: incremental solving
+      {
+        if (isFalse (disj)) continue;
+        
+        if (isEquiv (disjoin(newDisj, efac), mk<OR>(disjoin(newDisj, efac), disj))) continue;
+        
+        newDisj.insert(disj);
+      }
+      
+      return disjoin(newDisj, efac);
+    }
+    
     
     /**
      * Model-based simplification of a formula with 1 (one only) variable
@@ -220,7 +244,6 @@ namespace ufo
     fp.addRule(allVars, boolop::limp (mk<AND> (B, itpApp), errApp));
     
     tribool res;
-    
     try {
       res = fp.query(errApp);
     } catch (z3::exception &e){

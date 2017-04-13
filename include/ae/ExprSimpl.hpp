@@ -758,7 +758,110 @@ namespace ufo
     return true;
   }
   
-  inline static void getConj (Expr a, ExprVector &conjs)
+  inline static bool isNumericConst(Expr e)
+  {
+    return isOpX<MPZ>(e) || isOpX<MPQ>(e);
+  }
+  
+  template<typename Range> static int getVarIndex(Expr var, Range& vec)
+  {
+    int i = 0;
+    for (auto &e: vec)
+    {
+      if (var == e) return i;
+      i++;
+    }
+    return -1;
+  }
+  
+  static void getAddTerm (Expr a, ExprVector &terms); // declaration only
+  
+  inline static Expr arithmInverse(Expr e)
+  {
+    bool success = true;
+    if (isOpX<MULT>(e))
+    {
+      int coef = 1;
+      Expr var = NULL;
+      for (auto it = e->args_begin (), end = e->args_end (); it != end; ++it)
+      {
+        if (isNumericConst(*it))
+        {
+          coef *= lexical_cast<int>(*it);
+        }
+        else if (bind::isIntConst(*it) && var == NULL)
+        {
+          var = *it;
+        }
+        else
+        {
+          success = false;
+        }
+      }
+      if (success && coef != 0) return mk<MULT>(mkTerm (mpz_class (-coef), e->getFactory()), e->right());
+      
+      if (coef == 0) return mkTerm (mpz_class (0), e->getFactory());
+    }
+    else if (isOpX<PLUS>(e))
+    {
+      ExprVector terms;
+      for (auto it = e->args_begin (), end = e->args_end (); it != end; ++it)
+      {
+        getAddTerm(arithmInverse(*it), terms);
+      }
+      return mknary<PLUS>(terms);
+    }
+    else if (isOpX<MINUS>(e))
+    {
+      ExprVector terms;
+      getAddTerm(arithmInverse(*e->args_begin ()), terms);
+      auto it = e->args_begin () + 1;
+      for (auto end = e->args_end (); it != end; ++it)
+      {
+        getAddTerm(*it, terms);
+      }
+      return mknary<PLUS>(terms);
+    }
+    else if (isOpX<UN_MINUS>(e))
+    {
+      return e->left();
+    }
+    else if (isNumericConst(e))
+    {
+      return mkTerm (mpz_class (-lexical_cast<int>(e)), e->getFactory());
+    }
+    return mk<MULT>(mkTerm (mpz_class (-1), e->getFactory()), e);
+  }
+  
+  inline static void getAddTerm (Expr a, ExprVector &terms) // implementation (mutually recursive)
+  {
+    if (isOpX<PLUS>(a))
+    {
+      for (auto it = a->args_begin (), end = a->args_end (); it != end; ++it)
+      {
+        getAddTerm(*it, terms);
+      }
+    }
+    else if (isOpX<MINUS>(a))
+    {
+      auto it = a->args_begin ();
+      auto end = a->args_end ();
+      getAddTerm(*it, terms);
+//      outs () <<"   [   " << *(*it) << "\n";
+      ++it;
+      for (; it != end; ++it)
+      {
+//        outs () << *mk<UN_MINUS>(*it) << "   ]   \n";
+        getAddTerm(arithmInverse(*it), terms);
+      }
+    }
+    else
+    {
+      terms.push_back(a);
+    }
+  }
+  
+  inline static void getConj (Expr a, ExprSet &conjs)
   {
     if (isOpX<TRUE>(a)) return;
     if (isOpX<AND>(a)){
@@ -766,9 +869,53 @@ namespace ufo
         getConj(a->arg(i), conjs);
       }
     } else {
-      if(find(conjs.begin(), conjs.end(), a) == conjs.end())
-        conjs.push_back(a);
+      conjs.insert(a);
     }
+  }
+  
+  inline static void getDisj (Expr a, ExprSet &disjs)
+  {
+    if (isOpX<TRUE>(a)) return;
+    if (isOpX<OR>(a)){
+      for (unsigned i = 0; i < a->arity(); i++){
+        getDisj(a->arg(i), disjs);
+      }
+    } else {
+      disjs.insert(a);
+    }
+  }
+  
+  inline Expr convertToGEandGT(Expr term)
+  {   
+    if (isOpX<LT>(term)) return mk<GT>(term->right(), term->left());
+    
+    if (isOpX<LEQ>(term)) return mk<GEQ>(term->right(), term->left());
+    
+    if (isOpX<EQ>(term)) return mk<AND>(
+                  mk<GEQ>(term->left(), term->right()),
+                  mk<GEQ>(term->right(), term->left()));
+    
+    if (isOpX<NEQ>(term)) return mk<OR>(
+                  mk<GT>(term->left(), term->right()),
+                  mk<GT>(term->right(), term->left()));
+    
+    if (isOpX<NEG>(term))
+    {
+      return mk<NEG>(convertToGEandGT(term->last()));
+    }
+    
+    if (isOpX<AND>(term) || isOpX<OR>(term))
+    {
+      ExprSet args;
+      for (int i = 0; i < term->arity(); i++){
+        args.insert(convertToGEandGT(term->arg(i)));
+      }
+      
+      return isOpX<AND>(term) ? conjoin (args, term->getFactory()) :
+                  disjoin (args, term->getFactory());
+      
+    }
+    return term;
   }
   
   /**
@@ -784,12 +931,12 @@ namespace ufo
   }
   
   inline static Expr simplifiedAnd (Expr a, Expr b){
-    ExprVector conjs;
+    ExprSet conjs;
     getConj(a, conjs);
     getConj(b, conjs);
     return
     (conjs.size() == 0) ? mk<TRUE>(a->getFactory()) :
-    (conjs.size() == 1) ? conjs[0] :
+    (conjs.size() == 1) ? *conjs.begin() :
     mknary<AND>(conjs);
   }
   
@@ -799,6 +946,416 @@ namespace ufo
     for (auto &var: a)
       if (find(b.begin(), b.end(), var) != b.end()) c.insert(var);
     return c.size();
+  }
+  
+  inline static void productAnd (ExprSet& as, ExprSet& bs, ExprSet& ps)
+  {
+    for (auto &a : as)
+    {
+      for (auto &b : bs)
+      {
+        ps.insert(mk<OR>(a, b));
+      }
+    }
+  }
+  
+  // ab \/ cde \/ f =>
+  //                    (a \/ c \/ f) /\ (a \/ d \/ f) /\ (a \/ e \/ f) /\
+  //                    (b \/ c \/ f) /\ (b \/ d \/ f) /\ (b \/ e \/ f)
+  inline static Expr rewriteOrAnd(Expr exp)
+  {
+    ExprSet disjs;
+    getDisj(exp, disjs);
+    if (disjs.size() == 1) return exp;
+    
+    vector<ExprSet> dconjs;
+    for (auto &a : disjs)
+    {
+      ExprSet conjs;
+      getConj(a, conjs);
+      dconjs.push_back(conjs);
+    }
+    
+    ExprSet older;
+    productAnd(dconjs[0], dconjs[1], older);
+    
+    ExprSet newer = older;
+    for (int i = 2; i < disjs.size(); i++)
+    {
+      newer.clear();
+      productAnd(dconjs[i], older, newer);
+      older = newer;
+    }
+    
+    return conjoin (newer, exp->getFactory());
+  }
+  
+  // not very pretty method, but..
+  inline static Expr reBuildCmp(Expr term, Expr lhs, Expr rhs)
+  {
+    if (isOpX<EQ>(term))
+    {
+      return mk<EQ>(lhs, rhs);
+    }
+    if (isOpX<NEQ>(term))
+    {
+      return mk<NEQ>(lhs, rhs);
+    }
+    if (isOpX<LEQ>(term))
+    {
+      return mk<LEQ>(lhs, rhs);
+    }
+    if (isOpX<GEQ>(term))
+    {
+      return mk<GEQ>(lhs, rhs);
+    }
+    if (isOpX<LT>(term))
+    {
+      return mk<LT>(lhs, rhs);
+    }
+    assert(isOpX<GT>(term));
+    return mk<GT>(lhs, rhs);
+  }
+  
+  inline static Expr reBuildNegCmp(Expr term, Expr lhs, Expr rhs)
+  {
+    if (isOpX<EQ>(term))
+    {
+      return mk<NEQ>(lhs, rhs);
+    }
+    if (isOpX<NEQ>(term))
+    {
+      return mk<EQ>(lhs, rhs);
+    }
+    if (isOpX<LEQ>(term))
+    {
+      return mk<GT>(lhs, rhs);
+    }
+    if (isOpX<GEQ>(term))
+    {
+      return mk<LT>(lhs, rhs);
+    }
+    if (isOpX<LT>(term))
+    {
+      return mk<GEQ>(lhs, rhs);
+    }
+    assert(isOpX<GT>(term));
+    return mk<LEQ>(lhs, rhs);
+  }
+  
+  // not very pretty method, but..
+  inline static bool evaluateCmpConsts(Expr term, int a, int b)
+  {
+    if (isOpX<EQ>(term))
+    {
+      return (a == b);
+    }
+    if (isOpX<NEQ>(term))
+    {
+      return (a != b);
+    }
+    if (isOpX<LEQ>(term))
+    {
+      return (a <= b);
+    }
+    if (isOpX<GEQ>(term))
+    {
+      return (a >= b);
+    }
+    if (isOpX<LT>(term))
+    {
+      return (a < b);
+    }
+    assert(isOpX<GT>(term));
+    return (a > b);
+  }
+  
+  inline static Expr mkNeg(Expr term)
+  {
+    if (isOpX<NEG>(term))
+    {
+      return term->arg(0);
+    }
+    else if (isOpX<AND>(term) || isOpX<OR>(term))
+    {
+      ExprSet args;
+      for (int i = 0; i < term->arity(); i++){
+        args.insert(mkNeg(term->arg(i)));
+      }
+      return isOpX<AND>(term) ? disjoin(args, term->getFactory()) :
+                                conjoin (args, term->getFactory());
+    }
+    else if (isOp<ComparissonOp>(term))
+    {
+      return reBuildNegCmp(term, term->arg(0), term->arg(1));
+    }
+    return mk<NEG>(term);
+  }
+  
+  inline static Expr unfoldITE(Expr term)
+  {
+    if (isOpX<ITE>(term))
+    {
+      Expr iteCond = unfoldITE (term->arg(0));
+      Expr iteC1 = unfoldITE (term->arg(1));
+      Expr iteC2 = unfoldITE (term->arg(2));
+      
+      return mk<OR>( mk<AND>(iteCond, iteC1),
+                    mk<AND>(mkNeg(iteCond), iteC2));
+    }
+    else if (isOpX<NEG>(term))
+    {
+      return mk<NEG>(unfoldITE(term->last()));
+    }
+    else if (isOpX<AND>(term) || isOpX<OR>(term))
+    {
+      ExprSet args;
+      for (int i = 0; i < term->arity(); i++){
+        args.insert(unfoldITE(term->arg(i)));
+      }
+      return isOpX<AND>(term) ? conjoin (args, term->getFactory()) :
+                                disjoin (args, term->getFactory());
+    }
+    else if (isOp<ComparissonOp>(term))
+    {
+      Expr lhs = term->arg(0);
+      Expr rhs = term->arg(1);
+      
+      if (isOpX<ITE>(rhs))
+      {
+        
+        Expr iteCond = unfoldITE (rhs->arg(0));
+        Expr iteC1 = rhs->arg(1);
+        Expr iteC2 = rhs->arg(2);
+        
+        Expr newCmp1 = unfoldITE (reBuildCmp(term, lhs, iteC1));
+        Expr newCmp2 = unfoldITE (reBuildCmp(term, lhs, iteC2));
+        
+        Expr transformed = mk<OR>( mk<AND>(iteCond, newCmp1),
+                                  mk<AND>(mkNeg(iteCond), newCmp2));
+        
+        //          outs () << "     [1b] ---> " << *term << "\n";
+        //          outs () << "     [1e] ---> " << *transformed << "\n\n";
+        return transformed;
+        
+      }
+      else if (isOpX<ITE>(lhs))
+      {
+        // GF: symmetric case to the one above
+        
+        Expr iteCond = unfoldITE (lhs->arg(0));
+        Expr iteC1 = lhs->arg(1);
+        Expr iteC2 = lhs->arg(2);
+        
+        Expr newCmp1 = unfoldITE (reBuildCmp(term, iteC1, rhs));
+        Expr newCmp2 = unfoldITE (reBuildCmp(term, iteC2, rhs));
+        
+        Expr transformed = mk<OR>( mk<AND>(iteCond, newCmp1),
+                                  mk<AND>(mkNeg(iteCond), newCmp2));
+        
+        //          outs () << "    [2b] ---> " << *term << "\n";
+        //          outs () << "    [2e] ---> " << *transformed << "\n\n";
+        return transformed;
+      }
+      else if (isOpX<PLUS>(rhs))
+      {
+        bool found = false;
+        Expr iteArg;
+        ExprVector newArgs;
+        for (auto it = rhs->args_begin(), end = rhs->args_end(); it != end; ++it)
+        {
+          // make sure that only one ITE is found
+          
+          if (!found && isOpX<ITE>(*it))
+          {
+            found = true;
+            iteArg = *it;
+          }
+          else
+          {
+            newArgs.push_back(*it);
+          }
+        }
+        if (found)
+        {
+          Expr iteCond = unfoldITE (iteArg->arg(0));
+          Expr iteC1 = iteArg->arg(1);
+          Expr iteC2 = iteArg->arg(2);
+          
+          newArgs.push_back(iteC1);
+          Expr e1 = unfoldITE (reBuildCmp(term, lhs, mknary<PLUS>(newArgs))); // GF: "unfoldITE" gives error...
+          
+          newArgs.pop_back();
+          newArgs.push_back(iteC2);
+          Expr e2 = unfoldITE (reBuildCmp(term, lhs, mknary<PLUS>(newArgs)));
+          
+          Expr transformed = mk<OR>(mk<AND>(iteCond, e1),
+                                    mk<AND>(mkNeg(iteCond),e2));
+          
+          //            outs () << "    [3b] ---> " << *term << "\n";
+          //            outs () << "    [3e] ---> " << *transformed << "\n\n";
+          
+          return transformed;
+        }
+      }
+      else if (isOpX<PLUS>(lhs))
+      {
+        // symmetric to the above case
+        bool found = false;
+        Expr iteArg;
+        ExprVector newArgs;
+        for (auto it = lhs->args_begin(), end = lhs->args_end(); it != end; ++it)
+        {
+          if (!found && isOpX<ITE>(*it))
+          {
+            found = true;
+            iteArg = *it;
+          }
+          else
+          {
+            newArgs.push_back(*it);
+          }
+        }
+        
+        if (found)
+        {
+          Expr iteCond = unfoldITE (iteArg->arg(0));
+          Expr iteC1 = iteArg->arg(1);
+          Expr iteC2 = iteArg->arg(2);
+          
+          newArgs.push_back(iteC1);
+          Expr e1 = unfoldITE (reBuildCmp(term, mknary<PLUS>(newArgs), rhs));
+          
+          newArgs.pop_back();
+          newArgs.push_back(iteC2);
+          Expr e2 = unfoldITE (reBuildCmp(term, mknary<PLUS>(newArgs), rhs));
+          
+          Expr transformed = mk<OR>(mk<AND>(iteCond,e1),
+                                    mk<AND>(mkNeg(iteCond),e2));
+          
+          //            outs () << "    [4b] ---> " << *term << "\n";
+          //            outs () << "    [4e] ---> " << *transformed << "\n\n";
+          
+          return transformed;
+        }
+      }
+    }
+    
+    return term;
+  }
+  
+  // very simple check if tautology (SMT-based check is expensive)
+  inline static bool isTautology(Expr term)
+  {
+    if (isOpX<EQ>(term))
+      if (term->arg(0) == term->arg(1)) return true;
+    
+    if (isOp<ComparissonOp>(term))
+      if (isNumericConst(term->arg(0)) && isNumericConst(term->arg(1)))
+        return evaluateCmpConsts(term,
+                                 lexical_cast<int>(term->arg(0)), lexical_cast<int>(term->arg(1)));
+    
+    ExprSet cnjs;
+    getConj(term, cnjs);
+    if (cnjs.size() < 2) return false;
+    
+    bool res = true;
+    for (auto &a : cnjs) res &= isTautology(a);
+    
+    return res;
+  }
+  
+  inline static Expr normalizeAtom(Expr term, ExprVector& intVars)
+  {
+    if (isOp<ComparissonOp>(term))
+    {
+      Expr lhs = term->left();
+      Expr rhs = term->right();
+      
+      ExprVector all;
+      ExprVector allrhs;
+      
+      getAddTerm(lhs, all);
+      getAddTerm(rhs, allrhs);
+      for (auto & a : allrhs)
+      {
+        all.push_back(arithmInverse(a));
+      }
+      
+      ExprSet newlhs;
+      
+      for (auto &v : intVars)
+      {
+        int coef = 0;
+        for (auto it = all.begin(); it != all.end();)
+        {
+          if(v == *it)
+          {
+            coef++;
+            it = all.erase(it);
+          }
+          else if (isOpX<UN_MINUS>(*it) && (*it)->left() == v)
+          {
+            coef--;
+            it = all.erase(it);
+          }
+          else if (isOpX<MULT>(*it) && (*it)->right() == v)
+          {
+            coef += lexical_cast<int>((*it)->left());
+            it = all.erase(it);
+          }
+          else
+          {
+            ++it;
+          }
+        }
+        if (coef != 0) newlhs.insert(mk<MULT>(mkTerm (mpz_class (coef), term->getFactory()), v));
+      }
+      
+      bool success = true;
+      int intconst = 0;
+      
+      for (auto &e : all)
+      {
+        if (isNumericConst(e))
+        {
+          intconst += lexical_cast<int>(e);
+        }
+        else
+        {
+          success = false;
+        }
+      }
+      
+      if (success && newlhs.size() == 0)
+      {
+        return (evaluateCmpConsts(term, 0, -intconst)) ? mk<TRUE>(term->getFactory()) :
+                                                         mk<FALSE>(term->getFactory());
+      }
+      
+      if (success)
+      {
+        Expr pl = (newlhs.size() == 1) ? *newlhs.begin(): mknary<PLUS>(newlhs);
+        Expr c = mkTerm (mpz_class (-intconst), term->getFactory());
+        return reBuildCmp(term, pl, c);
+      }
+      
+    }
+    return term;
+  }
+  
+  inline static Expr normalizeDisj(Expr exp, ExprVector& intVars)
+  {
+    ExprSet disjs;
+    ExprSet newDisjs;
+    getDisj(exp, disjs);
+    for (auto &d : disjs)
+    {
+      Expr norm = normalizeAtom(d, intVars);
+      if ( isOpX<TRUE> (norm)) return norm;
+      if (!isOpX<FALSE>(norm)) newDisjs.insert(norm);
+    }
+    return disjoin(newDisjs, exp->getFactory());
   }
 }
 
