@@ -204,8 +204,6 @@ namespace ufo
     int indexGT;
     int indexGE;
     
-    int status; // internal flag
-    
     public:
     
     // set of fields related to guessing:
@@ -231,27 +229,27 @@ namespace ufo
           m_efac(_efac), densecode(_densecode), aggressivepruning(_aggressivepruning)
     {};
     
-    // should be run first;
     void addVar(Expr var)
     {
       vars.push_back(var);
-      status = 1;
     }
     
     void addConst(int c)
     {
       intConsts.push_back(c);
-      status = 2;
     }
     
-    void initialize()
+    void addIntCoef(int coef)
     {
-      assert (status == 2);
-      // fixed set of integers to be coefficients (could be manually extended in principle)
-      intCoefs.push_back(-2);
-      intCoefs.push_back(-1);
-      intCoefs.push_back(1);
-      intCoefs.push_back(2);
+      intCoefs.push_back(coef);
+    }
+    
+    void initialize()  // should be called after addVar, addConst, and addIntCoef
+    {
+      assert (intCoefs.size() > 0);
+      assert (intConsts.size() > 0);
+      assert (vars.size() > 0);
+      
       prVarsDistrRange = 2 * intConsts.size();
       
       // auxiliary variables for inequations:
@@ -267,9 +265,14 @@ namespace ufo
       cmpOps.push_back(mk<GEQ> (auxVar1, auxVar2));
       indexGE = cmpOps.size() - 1;
       
-      // finally, map values to expressions
+//      // finally, map values to expressions
       for (auto a : intCoefs) intCoefsE.push_back(mkTerm (mpz_class (a), m_efac));    // assemble expressions
       for (auto a : intConsts) intConstsE.push_back(mkTerm (mpz_class (a), m_efac));  //
+    }
+    
+    vector<int>& getConsts()
+    {
+      return intConsts;
     }
     
     ExprVector& getVars()

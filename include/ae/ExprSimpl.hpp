@@ -1357,6 +1357,49 @@ namespace ufo
     }
     return disjoin(newDisjs, exp->getFactory());
   }
+  
+  inline static void getLinCombCoefs(Expr ex, set<int>& intCoefs)
+  {
+    if (isOpX<OR>(ex))
+    {
+      for (auto it = ex->args_begin (), end = ex->args_end (); it != end; ++it)
+        getLinCombCoefs(*it, intCoefs);
+      }
+      else if (isOp<ComparissonOp>(ex)) // assuming the lin.combination is on the left side
+      {
+        Expr lhs = ex->left();
+        if (isOpX<PLUS>(lhs))
+        {
+          for (auto it = lhs->args_begin (), end = lhs->args_end (); it != end; ++it)
+          {
+            if (isOpX<MULT>(*it))           // else, it is 1, and we will add it anyway;
+            {
+              intCoefs.insert(lexical_cast<int> ((*it)->left()));
+            }
+          }
+        }
+        else
+        {
+          if (isOpX<MULT>(lhs))
+          {
+            intCoefs.insert(lexical_cast<int> (lhs->left()));
+          }
+        }
+      }
+    }
+
+  inline static void getLinCombConsts(Expr ex, set<int>& intConsts)
+  {
+    if (isOpX<OR>(ex))
+    {
+      for (auto it = ex->args_begin (), end = ex->args_end (); it != end; ++it)
+        getLinCombConsts(*it, intConsts);
+      }
+    else if (isOp<ComparissonOp>(ex)) // assuming the lin.combination is on the left side
+    {
+      intConsts.insert(lexical_cast<int> (ex->right()));
+    }
+  }
 }
 
 #endif

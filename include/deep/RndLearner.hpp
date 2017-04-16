@@ -218,16 +218,22 @@ namespace ufo
       }
       
       set<int> progConsts;
-      
-      // analize each rule separately:
+      set<int> intCoefs;
       vector<CodeSampler> css;
       
+      // analize each rule separately:
       for (auto &hr : ruleManager.chcs)
       {
         if (hr.dstRelation != decls.back() && hr.srcRelation != decls.back()) continue;
         
         css.push_back(CodeSampler(hr, invDecl, lf.getVars()));
         css.back().analyzeCode(densecode, shrink);
+        
+        for (auto &cand : css.back().candidates)
+        {
+          getLinCombCoefs(cand, intCoefs);
+          getLinCombConsts(cand, css.back().intConsts);
+        }
         
         // convert cs.intConsts to progConsts and add additive inverses (if applicable):
         for (auto &a : css.back().intConsts)
@@ -241,7 +247,6 @@ namespace ufo
       while (progConsts.size() > 0)
       {
         int min = INT_MAX;
-        Expr eMin;
         for (auto c : progConsts)
         {
           if (c < min)
@@ -252,14 +257,31 @@ namespace ufo
         progConsts.erase(min);
         lf.addConst(min);
       }
+      
+      intCoefs.insert(1);                           // add 1
+      for (auto &a : lf.getConsts()) if (a != 0) intCoefs.insert(a);
+      for (auto &a : intCoefs) intCoefs.insert(-a); // add the inverse
+      for (auto &a : intCoefs) lf.addIntCoef(a);
 
       lf.initialize();
       lf.initDensities();
 
-      // normalize samples from rules and calculate various statistics
-      // (there could be repetitions, but it's fine)
-      
+      // normalize samples obtained from CHCs and calculate various statistics:
+      vector<LAdisj> lcss;
       for (auto &cs : css)
+      {
+        for (auto &cand : cs.candidates)
+        {
+          lcss.push_back(LAdisj());
+          LAdisj& lcs = lcss.back();
+          if (lf.exprToLAdisj(cand, lcs))
+          {
+            lcs.normalizePlus();
+          }
+        }
+      }
+      
+      if (densecode)
       {
         int multip = PRIORSTEP;                 // will add +PRIORSTEP to every occurrence
         
@@ -267,63 +289,46 @@ namespace ufo
         //        if (cs.hr.isFact) multip = 1;
         //        else if (cs.hr.isQuery) multip = 2 * PRIORSTEP;
         //        else multip = PRIORSTEP;
-        
-        for (auto &cand : cs.candidates)
+        for (auto &lcs : lcss)
         {
-          LAdisj lcs;
-          if (lf.exprToLAdisj(cand, lcs))
+          // specify weights for OR arity
+          lf.orAritiesDensity[lcs.arity] += multip;
+          
+          for (int i = 0; i < lcs.arity; i++)
           {
-            lcs.normalizePlus();
+            LAterm& lc = lcs.dstate[i];
             
-            if (densecode)
+            // specify weights for PLUS arity
+            lf.plusAritiesDensity[lc.arity] += multip;
+            
+            // specify weights for const
+            lf.intConstDensity[lc.intconst] += multip;
+            
+            // specify weights for comparison operation
+            lf.cmpOpDensity[lc.cmpop] += multip;
+            
+            // specify weights for var combinations
+            set<int> vars;
+            int vars_id = -1;
+            for (int j = 0; j < lc.vcs.size(); j = j+2) vars.insert(lc.vcs[j]);
+            for (int j = 0; j < lf.varCombinations[lc.arity].size(); j++)
             {
-              // specify weights for OR arity
-              lf.orAritiesDensity[lcs.arity] += multip;
-              
-              for (int i = 0; i < lcs.arity; i++)
+              if (lf.varCombinations[lc.arity][j] == vars)
               {
-                LAterm& lc = lcs.dstate[i];
-                
-                // specify weights for PLUS arity
-                lf.plusAritiesDensity[lc.arity] += multip;
-                
-                // specify weights for const
-                lf.intConstDensity[lc.intconst] += multip;
-                
-                // specify weights for comparison operation
-                lf.cmpOpDensity[lc.cmpop] += multip;
-                
-                // specify weights for var combinations
-                set<int> vars;
-                int vars_id = -1;
-                for (int j = 0; j < lc.vcs.size(); j = j+2) vars.insert(lc.vcs[j]);
-                for (int j = 0; j < lf.varCombinations[lc.arity].size(); j++)
-                {
-                  if (lf.varCombinations[lc.arity][j] == vars)
-                  {
-                    vars_id = j;
-                    break;
-                  }
-                }
-                assert(vars_id >= 0);
-                lf.varDensity[lc.arity][vars_id] += multip;
-                
-                for (int j = 1; j < lc.vcs.size(); j = j+2)
-                {
-                  lf.coefDensity[ lc.vcs [j-1] ] [lc.vcs [j] ] += multip;
-                }
+                vars_id = j;
+                break;
               }
             }
-          }
-          else
-          {
-            //          outs () << "rule out: " << *cand << "\n";
-            //          assert(u.isEquiv(cand, mk<TRUE>(m_efac)));
+            assert(vars_id >= 0);
+            lf.varDensity[lc.arity][vars_id] += multip;
+            
+            for (int j = 1; j < lc.vcs.size(); j = j+2)
+            {
+              lf.coefDensity[ lc.vcs [j-1] ] [lc.vcs [j] ] += multip;
+            }
           }
         }
-      }
-      if (densecode)
-      {
+
         outs() << "Statistics for " << *decls.back() << "\n";
         lf.printCodeStatistics();
       }
