@@ -132,8 +132,8 @@ namespace ufo
         boost::tribool res = m_smt_solver.solve ();
         if (res)    // SAT   == candidate failed
         {
-          outs () << "   => bad candidate for " << *hr.dstRelation << "\n";
-          lf2.assignPrioritiesForFailed(lf2.samples.back());
+          outs () << "    => bad candidate for " << *hr.dstRelation << "\n";
+          if (aggressivepruning) lf2.assignPrioritiesForFailed(lf2.samples.back());
           return false;
         }
         else        // UNSAT == candadate is OK for now; keep checking
@@ -141,7 +141,7 @@ namespace ufo
           localNum[ind2]--;
           if (!res && localNum[ind2] == 0) // something inductive found
           {
-            outs () << "   => learnt lemma for " << *hr.dstRelation << "\n";
+            outs () << "    => learnt lemma for " << *hr.dstRelation << "\n";
             lf2.assignPrioritiesForLearnt(lf2.samples.back());
             lf2.learntExprs.insert(curCandidates[ind2]);
             lf2.learntLemmas.push_back(lf2.samples.size() - 1);
@@ -220,6 +220,7 @@ namespace ufo
       set<int> progConsts;
       set<int> intCoefs;
       vector<CodeSampler> css;
+      set<int> orArities;
       
       // analize each rule separately:
       for (auto &hr : ruleManager.chcs)
@@ -264,7 +265,6 @@ namespace ufo
       for (auto &a : intCoefs) lf.addIntCoef(a);
 
       lf.initialize();
-      lf.initDensities();
 
       // normalize samples obtained from CHCs and calculate various statistics:
       vector<LAdisj> lcss;
@@ -277,9 +277,21 @@ namespace ufo
           if (lf.exprToLAdisj(cand, lcs))
           {
             lcs.normalizePlus();
+            orArities.insert(lcs.arity);
+          }
+          else
+          {
+            lcss.pop_back();
           }
         }
       }
+      
+      if (orArities.size() == 0)                // default, if no samples were obtained from the code
+      {
+        for (int i = 1; i <= DEFAULTARITY; i++) orArities.insert(i);
+      }
+      
+      lf.initDensities(orArities);
       
       if (densecode)
       {
@@ -291,46 +303,47 @@ namespace ufo
         //        else multip = PRIORSTEP;
         for (auto &lcs : lcss)
         {
+          int ar = lcs.arity;
           // specify weights for OR arity
-          lf.orAritiesDensity[lcs.arity] += multip;
+          lf.orAritiesDensity[ar] += multip;
           
-          for (int i = 0; i < lcs.arity; i++)
+          for (int i = 0; i < ar; i++)
           {
             LAterm& lc = lcs.dstate[i];
             
             // specify weights for PLUS arity
-            lf.plusAritiesDensity[lc.arity] += multip;
+            lf.plusAritiesDensity[ar][lc.arity] += multip;
             
             // specify weights for const
-            lf.intConstDensity[lc.intconst] += multip;
+            lf.intConstDensity[ar][lc.intconst] += multip;
             
             // specify weights for comparison operation
-            lf.cmpOpDensity[lc.cmpop] += multip;
+            lf.cmpOpDensity[ar][lc.cmpop] += multip;
             
             // specify weights for var combinations
             set<int> vars;
             int vars_id = -1;
             for (int j = 0; j < lc.vcs.size(); j = j+2) vars.insert(lc.vcs[j]);
-            for (int j = 0; j < lf.varCombinations[lc.arity].size(); j++)
+            for (int j = 0; j < lf.varCombinations[ar][lc.arity].size(); j++)
             {
-              if (lf.varCombinations[lc.arity][j] == vars)
+              if (lf.varCombinations[ar][lc.arity][j] == vars)
               {
                 vars_id = j;
                 break;
               }
             }
             assert(vars_id >= 0);
-            lf.varDensity[lc.arity][vars_id] += multip;
+            lf.varDensity[ar][lc.arity][vars_id] += multip;
             
             for (int j = 1; j < lc.vcs.size(); j = j+2)
             {
-              lf.coefDensity[ lc.vcs [j-1] ] [lc.vcs [j] ] += multip;
+              lf.coefDensity[ ar ][ lc.vcs [j-1] ] [lc.vcs [j] ] += multip;
             }
           }
         }
 
-        outs() << "Statistics for " << *decls.back() << "\n";
-        lf.printCodeStatistics();
+        outs() << "\nStatistics for " << *decls.back() << ":\n";
+        lf.printCodeStatistics(orArities);
       }
     }
     

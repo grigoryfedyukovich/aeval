@@ -8,7 +8,7 @@
 (declare-var z2 Int)
 
 (declare-rel fail ())
-
+(rule (=> (and (= x1 0) (= y1 0) (= z1 0)) (itp1 x1 y1 z1)))
 ; COUNTERs -> x and y (nondet choice)
 (rule (=>
     (and

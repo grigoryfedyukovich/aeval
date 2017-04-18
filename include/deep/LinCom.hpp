@@ -1,9 +1,9 @@
 #ifndef LINCOM__HPP__
 #define LINCOM__HPP__
 
-#define MAXARITY 2
+#define DEFAULTARITY 2
 #define PRIORNOVISIT 0
-#define PRIORSTEP 5
+#define PRIORSTEP 15
 
 #include "Distribution.hpp"
 #include "ae/ExprSimpl.hpp"
@@ -209,14 +209,13 @@ namespace ufo
     // set of fields related to guessing:
     
     int prVarsDistrRange;
-    vector<weights> varDistrs;
     density orAritiesDensity;
-    density plusAritiesDensity;
-    density intConstDensity;
-    density cmpOpDensity;
-    vector<density> varDensity;
-    map<int, density> coefDensity;
-    vector<vector<set<int>>> varCombinations;
+    map<int, density> plusAritiesDensity;
+    map<int, density> intConstDensity;
+    map<int, density> cmpOpDensity;
+    map<int, vector<density>> varDensity;
+    map<int, map<int, density>> coefDensity;
+    map<int, vector<vector<set<int>>>> varCombinations;
     vector<LAdisj> samples;
     vector<int> learntLemmas;    // indeces to samples
     ExprSet learntExprs;   // lemmas from learntLemmas
@@ -394,21 +393,39 @@ namespace ufo
           all.push_back(lhs);
         }
         
-        s.arity = all.size(); // GF: to check
-        
         Expr aux = reBuildCmp(ex, auxVar1, auxVar2);
 
+        s.arity = all.size();
         s.cmpop = getVarIndex(aux, cmpOps);
-        
         s.intconst = getVarIndex(lexical_cast<int>(ex->right()), intConsts);
         
         for (auto &e : all)
         {
+          Expr curVar;
+          int curCoef;
+          
           if (isOpX<MULT>(e))
           {
-            s.vcs.push_back(getVarIndex(e->right(), vars));
-            s.vcs.push_back(getVarIndex(lexical_cast<int>(e->left()), intCoefs));
+            if (isNumericConst(e->left()))
+            {
+              curVar = e->right();
+              curCoef = lexical_cast<int>(e->left());
+            }
+            else
+            {
+              curVar = e->left();
+              curCoef = lexical_cast<int>(e->right());
+            }
           }
+          else
+          {
+            curVar = e;
+            curCoef = 1;
+          }
+          
+          s.vcs.push_back(getVarIndex(curVar, vars));
+          s.vcs.push_back(getVarIndex(curCoef, intCoefs));
+          
         }
         bool res = addDisjFilter(s, sample);
         if (!res) return false;
@@ -685,34 +702,34 @@ namespace ufo
     bool guessTerm (LAdisj& curTerm)
     {
       curTerm.clear();
-      int ar = chooseByWeight(orAritiesDensity);
+      int arity = chooseByWeight(orAritiesDensity);
       
       vector<set<int>> varcombs;
       vector<LAterm> terms;
       
       // first, guess var combinations:
       
-      for (int i = 0; i < ar; i++)
+      for (int i = 0; i < arity; i++)
       {
         terms.push_back(LAterm());
         LAterm& la = terms.back();
-        la.arity = chooseByWeight(plusAritiesDensity);
+        la.arity = chooseByWeight(plusAritiesDensity[arity]);
         
-        vector<set<int>>& varCombination = varCombinations[la.arity];
-        int comb = chooseByWeight(varDensity[la.arity]);
+        vector<set<int>>& varCombination = varCombinations[arity][la.arity];
+        int comb = chooseByWeight(varDensity[arity][la.arity]);
         varcombs.push_back(varCombination[comb]);
       }
       
       // then, guess coefficients to complete the lin. combination
       
-      for (int i = 0; i < ar; i++)
+      for (int i = 0; i < arity; i++)
       {
         LAterm& la = terms[i];
         for (int v : varcombs[i])
         {
           la.vcs.push_back( v );
-          int coef = chooseByWeight(coefDensity[v]);
-          la.vcs.push_back( coef );
+          int coef = chooseByWeight(coefDensity[arity][v]);
+          la.vcs.push_back(coef);
         }
         
         if (i != 0)
@@ -743,15 +760,24 @@ namespace ufo
       
       lincoms& id = curTerm.getId();
       
-      for (int i = 0; i < ar; i++)      // finally, guess operator and constant
+      for (int i = 0; i < arity; i++)      // finally, guess operator and constant
       {
         LAterm& la = curTerm.dstate[i];
-        guessNewInequality(id, i, la);
+        guessNewInequality(id, i, la, arity);
+        
+        if (aggressivepruning)
+        {
+          for (int k = 0; k < learntLemmas.size(); k++)
+          {
+            LAdisj& lcs = samples[ learntLemmas [k] ];
+            if (lcs.arity == 1 && lcs.dstate[0] == la) return false;
+          }
+        }
       }
       return true;
     }
     
-    void guessNewInequality (lincoms& id, int disj, LAterm& curLAterm)
+    void guessNewInequality (lincoms& id, int disj, LAterm& curLAterm, int ar)
     {
       vector<weights>& distrs = ineqPriors[id];
       initDistrs(distrs, id.size(), prVarsDistrRange);
@@ -762,13 +788,10 @@ namespace ufo
         reInitialize(id, disj);
       }
       
-      //      printDistr(distrs[disj], (string)(isDefault(distrs[disj]) ? "   Guessing new" : "   Updating") +
-      //                 " inequality for " + lexical_cast<string>(*assembleLinComb(curLAterm)));
-      
       if (densecode && isDefault(distrs[disj]))       // if it's the first time we look at this lin.combination,
       {                                               // we might want to guess a candidate based on the code
-        curLAterm.intconst = chooseByWeight(intConstDensity);
-        curLAterm.cmpop = chooseByWeight(cmpOpDensity);
+        curLAterm.intconst = chooseByWeight(intConstDensity[ar]);
+        curLAterm.cmpop = chooseByWeight(cmpOpDensity[ar]);
       }
       else                                            // otherwise, some info about this lin.combination
       {                                               // is already kmown from the previous checks
@@ -855,8 +878,6 @@ namespace ufo
         {
           distrs[i][j] = PRIORNOVISIT;
         }
-        
-        //        printDistr(distrs[i]);
         isVisited(id, i);
       }
     }
@@ -904,7 +925,6 @@ namespace ufo
           }
         }
         
-        //        printDistr(distrs[i], "   Negative Priorities for " + lexical_cast<string>(*toExpr(s)));
         isVisited(id, i);
       }
     }
@@ -953,8 +973,6 @@ namespace ufo
           }
         }
         
-        //        printDistr(distrs[i], "Positive Priorities for " + lexical_cast<string>(*toExpr(s)));
-        
         isVisited(id, i);
       }
     }
@@ -964,6 +982,8 @@ namespace ufo
       vector<LAdisj> eqs;
       getEquivalentFormulas(learnt, eqs);
       for (auto &a : eqs) prioritiesLearnt (a);
+      
+      if (!aggressivepruning) return;
       
       if (learnt.arity == 1)
       {
@@ -1031,52 +1051,54 @@ namespace ufo
       for (auto &a : eqs) prioritiesGarbage (a);
     }
     
-    void initDensities()
+    void initDensities(set<int>& arities)
     {
-      for (int i = 1; i < MAXARITY+1; i++)
-      {
-        orAritiesDensity[i] = 1;
-      }
+      for (auto ar : arities) initDensities(ar);
+    }
+    
+    void initDensities(int ar)
+    {
+      orAritiesDensity[ar] = 1;
       
       for (int i = 1; i < vars.size() + 1; i++)
       {
-        plusAritiesDensity[i] = 1;
+        plusAritiesDensity[ar][i] = 1;
         
         for (int j = 0; j < intCoefs.size(); j++)
         {
-          coefDensity[i-1][j] = 1;
+          coefDensity[ar][i-1][j] = 1;
         }
       }
       
       for (int i = 0; i < intConsts.size(); i++)
       {
-        intConstDensity[i] = 1;
+        intConstDensity[ar][i] = 1;
       }
       
       for (int i = 0; i < cmpOps.size(); i++)
       {
-        cmpOpDensity[i] = 1;
+        cmpOpDensity[ar][i] = 1;
       }
       
       // preparing var densities;
-      varCombinations.push_back(vector<set<int>>()); // empty ones; not used
-      varDensity.push_back(density());               //
+      varCombinations[ar].push_back(vector<set<int>>()); // empty ones; not used
+      varDensity[ar].push_back(density());               //
       
       for (int i = 1; i <= vars.size(); i++)
       {
-        varCombinations.push_back(vector<set<int>>());
-        varDensity.push_back(density());
+        varCombinations[ar].push_back(vector<set<int>>());
+        varDensity[ar].push_back(density());
         
-        getCombinations(varInds, 0, i, varCombinations.back());
+        getCombinations(varInds, 0, i, varCombinations[ar].back());
         
-        for (int j = 0; j < varCombinations.back().size(); j++)
+        for (int j = 0; j < varCombinations[ar].back().size(); j++)
         {
-          varDensity.back()[j] = 1;
+          varDensity[ar].back()[j] = 1;
         }
       }
     }
     
-    void printCodeStatistics()
+    void printCodeStatistics(set<int>& arities)
     {
       outs() << "Int consts:\n";
       for (auto &form: intConsts) outs() << " " << form ;
@@ -1084,32 +1106,44 @@ namespace ufo
       
       for (auto &a : orAritiesDensity)
       {
-        outs() << " OR arity density: " << a.first << " <[-]> " << a.second << "\n";
+        outs() << "OR arity density: " << a.first << " <---> " << a.second << "\n";
       }
       
-      for (auto &a : plusAritiesDensity)
+      for (auto ar : arities) printCodeStatistics(ar);
+    }
+    
+    void printCodeStatistics(int ar)
+    {
+      outs () << "(OR arity = " << ar << "):\n";
+      
+      for (auto &a : plusAritiesDensity[ar])
       {
-        outs() << " Plus arity density: " << a.first << " <[-]> " << a.second << "\n";
+        outs() << " Plus arity density: " << a.first << " <---> " << a.second << "\n";
       }
       
-      for (auto &a : intConstDensity)
+      for (auto &a : intConstDensity[ar])
       {
-        outs() << " IntConst density: " << intConsts[ a.first ] << " <[-]> " << a.second << "\n";
+        outs() << " IntConst density: " << intConsts[ a.first ] << " <---> " << a.second << "\n";
       }
       
-      for (int i = 0; i < varDensity.size(); i++)
+      for (auto &a : cmpOpDensity[ar])
       {
-        for (auto &b : varDensity[i])
+        outs() << " Operator density: " << (a.first == indexGT ? ">" : ">=") << " <---> " << a.second << "\n";
+      }
+      
+      for (int i = 0; i < varDensity[ar].size(); i++)
+      {
+        for (auto &b : varDensity[ar][i])
         {
           
           outs() << " Var Combination density: ";
           
-          for ( int j : varCombinations[i][b.first])
+          for ( int j : varCombinations[ar][i][b.first])
           {
             outs() << *vars[j] << ", ";
           }
           
-          outs() << " <[-]> " << b.second << "\n";
+          outs() << " <---> " << b.second << "\n";
         }
       }
       
@@ -1118,7 +1152,7 @@ namespace ufo
         for (int j = 0; j < getIntCoefsSize(); j++)
         {
           outs() << " Var Coefficient density: [" << getIntCoef(j) << " * "
-          << *vars[i] << "] <[-]> " << coefDensity[i][j] << "\n";
+          << *vars[i] << "] <---> " << coefDensity[ar][i][j] << "\n";
         }
       }
     }

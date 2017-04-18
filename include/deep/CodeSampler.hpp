@@ -110,8 +110,8 @@ namespace ufo
       }
       else if (isOpX<IMPL>(term))
       {
-        Expr term2 = mk<OR>(mk<NEG>(term->left()), term->right());
-        populateArityAndTemplates(term2);
+        Expr term2 = mk<OR>(mkNeg(term->left()), term->right());
+        populateArityAndTemplates(convertToGEandGT(term2));
       }
       else if (isOpX<GT>(term) || isOpX<GEQ>(term))
       {
