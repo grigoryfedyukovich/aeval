@@ -13,3 +13,8 @@
 /llvm-seahorn/
 /seahorn-llvm/
 /gtags.files
+
+# ctags
+.tags
+.tags1
+.tags2
