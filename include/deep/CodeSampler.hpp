@@ -18,6 +18,7 @@ namespace ufo
     ExprSet candidates;
     
     set<int> intConsts;
+    set<int> intCoefs;
     
     HornRuleExt& hr;
     Expr invDecl;
@@ -55,6 +56,63 @@ namespace ufo
       if (!isOpX<FALSE> (tmpl2) && !isOpX<TRUE> (tmpl2))
       {
         candidates.insert(tmpl2);
+        
+        // get int constants from the normalized candidate
+        ExprSet intConstsE;
+        expr::filter (tmpl2, bind::IsHardIntConst(), std::inserter (intConstsE, intConstsE.begin ()));
+        
+        for (auto &a : intConstsE)
+        {
+          intConsts.insert(lexical_cast<int>(a));
+        }
+        
+        getLinCombCoefs(tmpl2, intCoefs);
+      }
+    }
+    
+    void processTransition(Expr tmpl, ExprVector& srcVars, ExprVector& dstVars, ExprSet& actualVars)
+    {
+      int found = false;
+      // very simple check if there are some srcVars and dstVars in the tmpl
+      
+      for (auto &v0 : srcVars)
+      {
+        for (auto &v1 : actualVars)
+        {
+          if (v0 == v1)
+          {
+            found = true;
+            break;
+          }
+        }
+      }
+      
+      if (! found) return;
+      
+      found = false;
+      for (auto &v0 : dstVars)
+      {
+        for (auto &v1 : actualVars)
+        {
+          if (v0 == v1)
+          {
+            found = true;
+            break;
+          }
+        }
+      }
+      
+      if (! found) return;
+      
+      ExprVector vars;
+      for (auto &v : actualVars) vars.push_back(v);
+
+      ExprSet intCoefsE;
+      expr::filter (normalizeDisj(tmpl, vars), bind::IsHardIntConst(), std::inserter (intCoefsE, intCoefsE.begin ()));
+      
+      for (auto &a : intCoefsE)
+      {
+        intCoefs.insert(lexical_cast<int>(a));
       }
     }
     
@@ -77,6 +135,7 @@ namespace ufo
       addSampleHlp(term, hr.srcVars, actualVars);
       addSampleHlp(term, hr.dstVars, actualVars);
       
+      processTransition(term, hr.srcVars, hr.dstVars, actualVars);
     }
     
     void populateArityAndTemplates(Expr term)
@@ -225,20 +284,12 @@ namespace ufo
         outs() <<"\n";
       }
       
-      // get int constants (and shrink later)
-      // GF: todo: make sure all constants in the code are Ints (otherwise, z3 could be unpredictable)
-      ExprSet intConstsE;
-      expr::filter (hr.body, bind::IsHardIntConst(), std::inserter (intConstsE, intConstsE.begin ()));
+      intCoefs.insert(1);
+      intConsts.insert(0);
       
-      for (auto &a : intConstsE)
-      {
-        intConsts.insert(lexical_cast<int>(a));
-      }
-      
-      // get samplecode templates (and shrink later)
+      // get samples and normalize
       if (samplecode)
       {
-        
         // for the query: add a negation of the entire non-recursive part:
         if (hr.isQuery)
         {
@@ -256,6 +307,20 @@ namespace ufo
             massaged = convertToGEandGT(massaged);
             populateArityAndTemplates(massaged);
           }
+        }
+      }
+      else
+      {
+        // get int constants (and shrink later)
+        // GF: todo: make sure all constants in the code are Ints (otherwise, z3 could be unpredictable)
+        ExprSet allNums;
+        expr::filter (hr.body, bind::IsHardIntConst(), std::inserter (allNums, allNums.begin ()));
+        
+        for (auto &a : allNums)
+        {
+          int c = lexical_cast<int>(a);
+          intConsts.insert(c);
+          if (c != 0) intCoefs.insert(c);
         }
       }
       

@@ -217,10 +217,11 @@ namespace ufo
         lf.addVar(var);
       }
       
-      set<int> progConsts;
-      set<int> intCoefs;
       vector<CodeSampler> css;
       set<int> orArities;
+      set<int> progConstsTmp;
+      set<int> progConsts;
+      set<int> intCoefs;
       
       // analize each rule separately:
       for (auto &hr : ruleManager.chcs)
@@ -230,17 +231,28 @@ namespace ufo
         css.push_back(CodeSampler(hr, invDecl, lf.getVars()));
         css.back().analyzeCode(densecode, shrink);
         
-        for (auto &cand : css.back().candidates)
-        {
-          getLinCombCoefs(cand, intCoefs);
-          getLinCombConsts(cand, css.back().intConsts);
-        }
-        
-        // convert cs.intConsts to progConsts and add additive inverses (if applicable):
+        // convert intConsts to progConsts and add additive inverses (if applicable):
         for (auto &a : css.back().intConsts)
         {
-          progConsts.insert( a);
-          progConsts.insert(-a);
+          progConstsTmp.insert( a);
+          progConstsTmp.insert(-a);
+        }
+        
+        // same for intCoefs
+        for (auto &a : css.back().intCoefs)
+        {
+          intCoefs.insert( a);
+          intCoefs.insert(-a);
+        }
+      }
+      
+      for (auto &a : intCoefs) lf.addIntCoef(a);
+      
+      for (auto &a : intCoefs)
+      {
+        for (auto &b : progConstsTmp)
+        {
+          progConsts.insert(a*b);
         }
       }
       
@@ -259,11 +271,6 @@ namespace ufo
         lf.addConst(min);
       }
       
-      intCoefs.insert(1);                           // add 1
-      for (auto &a : lf.getConsts()) if (a != 0) intCoefs.insert(a);
-      for (auto &a : intCoefs) intCoefs.insert(-a); // add the inverse
-      for (auto &a : intCoefs) lf.addIntCoef(a);
-
       lf.initialize();
 
       // normalize samples obtained from CHCs and calculate various statistics:
