@@ -30,8 +30,8 @@ namespace ufo
     ufo::ZSolver<ufo::EZ3> m_smt_safety_solver;
 
     CHCs& ruleManager;
-    vector<Expr> decls;          // container only mutated by `initializeDecl`
-    vector<LAfactory> lfs;       // container only mutated by `initializeDecl`
+    vector<Expr> decls;          //  container only mutated by `initializeDecl`
+    vector<LAfactory> lfs;       // zips with `decls`; container only mutated by `initializeDecl`
     vector<Expr> curCandidates;
     map<int, int> incomNum;
     int numOfSMTChecks;
@@ -79,7 +79,7 @@ namespace ufo
       return res;
     }
 
-    bool checkCandidates()
+    bool checkCandidates(function<void(unsigned, LAdisj&)> learnedLemma)
     {
       map<int, int> localNum = incomNum; // for local status
 
@@ -134,7 +134,8 @@ namespace ufo
           invApp2 = replaceAll(invApp2, lf2.getVarE(i), hr.dstVars[i]);
         }
 
-        m_smt_solver.assertExpr(mk<NEG>(invApp2));
+        auto neggedInvApp2 = mk<NEG>(invApp2);
+        m_smt_solver.assertExpr(neggedInvApp2);
 
         numOfSMTChecks++;
         boost::tribool res = m_smt_solver.solve ();
@@ -150,9 +151,11 @@ namespace ufo
           if (!res && localNum[ind2] == 0) // something inductive found
           {
             outs () << "   => learnt lemma for " << *hr.dstRelation << "\n";
-            lf2.assignPrioritiesForLearnt(lf2.samples.back());
+            LAdisj& learntDisj = lf2.samples.back();
+            lf2.assignPrioritiesForLearnt(learntDisj);
             lf2.learntExprs.insert(curCandidates[ind2]);
             lf2.learntLemmas.push_back(lf2.samples.size() - 1);
+            learnedLemma(ind2, learntDisj);
           }
         }
       }
@@ -210,7 +213,7 @@ namespace ufo
       for (auto &hr : ruleManager.chcs)
       {
         if (hr.dstRelation == decls.back())
-        incomNum[invNumber()-1]++;
+          incomNum[invNumber()-1]++;
       }
 
       for (int i = 1; i < invDecl->arity()-1; i++)
@@ -281,6 +284,7 @@ namespace ufo
           {
             lcs.normalizePlus();
           }
+          lcs.printLAdisj();
         }
       }
 
@@ -337,7 +341,9 @@ namespace ufo
       }
     }
 
-    SynthResult synthesize(int maxAttempts, function<bool()> shouldStop)
+    SynthResult synthesize(int maxAttempts, function<bool()> shouldStop,
+      function<vector<pair<unsigned, LAdisj>>()> accumulateNewLemmas,
+      function<void(unsigned, LAdisj&)> learnedLemma)
     {
       bool success = false;
       int iter = 1;
@@ -348,7 +354,20 @@ namespace ufo
       {
         // bail if we've been cancelled
         if (shouldStop()) {
-           return SynthResult(false, true);
+          return SynthResult(false, true);
+        }
+
+        // Opportunity to grab external lemma
+        for (pair<unsigned, LAdisj>& d : accumulateNewLemmas()) {
+          // cout << "received lemma for decl " << d.first << ": "
+          //      << lfs[d.first].toExpr(d.second) << endl;
+          LAfactory &laf = lfs[d.first];
+          laf.samples.push_back(d.second);
+          LAdisj& disj = laf.samples.back();
+          // disj.normalizePlus();
+          // lf.assignPrioritiesForLearnt(disj);
+          laf.learntExprs.insert(laf.toExpr(disj));
+          laf.learntLemmas.push_back(laf.samples.size() - 1);
         }
 
         // first, guess candidates for each inv.declaration
@@ -381,7 +400,7 @@ namespace ufo
 
         // check all the candidates at once for all CHCs :
 
-        if (checkCandidates())
+        if (checkCandidates(learnedLemma))
         {
           if (checkSafety())       // query is checked here
           {
@@ -406,13 +425,18 @@ namespace ufo
   };
 
 
-  inline SynthResult learnInvariants(function<bool()> shouldStop, string smt, int maxAttempts, bool b1=true, bool b2=true, bool b3=true)
+  inline SynthResult learnInvariants(string smt, int maxAttempts, bool b1=true,
+    bool b2=true, bool b3=true, function<bool()> shouldStop=nullptr,
+    function<vector<pair<unsigned, LAdisj>>()> accumulateNewLemmas=nullptr,
+    function<void(unsigned, LAdisj&)> learnedLemma=nullptr)
   {
     ExprFactory m_efac;
     EZ3 z3(m_efac);
 
     CHCs ruleManager(m_efac, z3);
     ruleManager.parse(smt);
+    ruleManager.print();
+
     RndLearner ds(m_efac, z3, ruleManager, b1, b2, b3);
 
     ds.setupSafetySolver();
@@ -425,11 +449,11 @@ namespace ufo
 
     for (auto& dcl: ruleManager.decls)
     {
-      outs() << "initializing decl:" << *dcl << "\n";
       ds.initializeDecl(dcl);
     }
 
-    return ds.synthesize(maxAttempts, shouldStop);
+    return ds.synthesize(maxAttempts, shouldStop, accumulateNewLemmas,
+      learnedLemma);
   }
 }
 
