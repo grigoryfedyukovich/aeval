@@ -5,6 +5,7 @@
 #include "CodeSampler.hpp"
 #include "Distribution.hpp"
 #include "LinCom.hpp"
+#include "Distributed.hpp"
 #include "ae/SMTUtils.hpp"
 
 using namespace std;
@@ -79,7 +80,8 @@ namespace ufo
       return res;
     }
 
-    bool checkCandidates(function<void(unsigned, LAdisj&)> learnedLemma)
+    bool checkCandidates(function<void(unsigned, LAdisj&)> learnedLemma,
+      function<void(unsigned, LAdisj&)> gotFailure)
     {
       map<int, int> localNum = incomNum; // for local status
 
@@ -142,7 +144,9 @@ namespace ufo
         if (res)    // SAT   == candidate failed
         {
           outs () << "   => bad candidate for " << *hr.dstRelation << "\n";
-          lf2.assignPrioritiesForFailed(lf2.samples.back());
+          LAdisj& failedDisj = lf2.samples.back();
+          lf2.assignPrioritiesForFailed(failedDisj);
+          gotFailure(ind2, failedDisj);
           return false;
         }
         else        // UNSAT == candadate is OK for now; keep checking
@@ -342,8 +346,10 @@ namespace ufo
     }
 
     SynthResult synthesize(int maxAttempts, function<bool()> shouldStop,
-      function<vector<pair<unsigned, LAdisj>>()> accumulateNewLemmas,
-      function<void(unsigned, LAdisj&)> learnedLemma)
+      function<vector<PeerResult>()> accumulatePeerResults,
+      function<void(unsigned, LAdisj&)> learnedLemma,
+      function<void(unsigned, LAdisj&)> gotFailure,
+      function<void(unsigned, LAdisj&)> gotGarbage)
     {
       bool success = false;
       int iter = 1;
@@ -357,21 +363,28 @@ namespace ufo
           return SynthResult(false, true);
         }
 
-        // Opportunity to grab external lemma
-        for (pair<unsigned, LAdisj>& d : accumulateNewLemmas()) {
-          // cout << "received lemma for decl " << d.first << ": "
-          //      << lfs[d.first].toExpr(d.second) << endl;
-          LAfactory &laf = lfs[d.first];
-          laf.samples.push_back(d.second);
+        // Opportunity to integrate external results
+        for (PeerResult& d : accumulatePeerResults()) {
+          LAfactory& laf = lfs[d.declIdx];
+          laf.samples.push_back(d.disj);
           LAdisj& disj = laf.samples.back();
-          // disj.normalizePlus();
-          // lf.assignPrioritiesForLearnt(disj);
-          laf.learntExprs.insert(laf.toExpr(disj));
-          laf.learntLemmas.push_back(laf.samples.size() - 1);
+          disj.normalizePlus();  // should be normalized already, but: safety
+          switch (d.kind) {
+          case PeerResultKindLemma:
+            laf.assignPrioritiesForLearnt(disj);
+            laf.learntExprs.insert(laf.toExpr(disj));
+            laf.learntLemmas.push_back(laf.samples.size() - 1);
+            break;
+          case PeerResultKindFailure:
+            laf.assignPrioritiesForFailed(disj);
+            break;
+          case PeerResultKindGarbage:
+            laf.assignPrioritiesForGarbage(disj);
+            break;
+          }
         }
 
         // first, guess candidates for each inv.declaration
-
         bool skip = false;
         for (int j = 0; j < invNumber(); j++)
         {
@@ -386,7 +399,9 @@ namespace ufo
 
           if (isTautology(cand) || !u.isSat(cand))  // keep searching
           {
-            lf.assignPrioritiesForGarbage(lf.samples.back());
+            LAdisj& disj = lf.samples.back();
+            lf.assignPrioritiesForGarbage(disj);
+            gotGarbage(j, disj);
             skip = true;
             break;
           }
@@ -399,8 +414,7 @@ namespace ufo
         for (int j = 0; j < invNumber(); j++) outs () << "candidate for " << *decls[j] << ": " << *curCandidates[j] << "\n";
 
         // check all the candidates at once for all CHCs :
-
-        if (checkCandidates(learnedLemma))
+        if (checkCandidates(learnedLemma, gotFailure))
         {
           if (checkSafety())       // query is checked here
           {
@@ -427,8 +441,10 @@ namespace ufo
 
   inline SynthResult learnInvariants(string smt, int maxAttempts, bool b1=true,
     bool b2=true, bool b3=true, function<bool()> shouldStop=nullptr,
-    function<vector<pair<unsigned, LAdisj>>()> accumulateNewLemmas=nullptr,
-    function<void(unsigned, LAdisj&)> learnedLemma=nullptr)
+    function<vector<PeerResult>()> accumulateNewLemmas=nullptr,
+    function<void(unsigned, LAdisj&)> learnedLemma=nullptr,
+    function<void(unsigned, LAdisj&)> gotFailure=nullptr,
+    function<void(unsigned, LAdisj&)> gotGarbage=nullptr)
   {
     ExprFactory m_efac;
     EZ3 z3(m_efac);
@@ -453,7 +469,7 @@ namespace ufo
     }
 
     return ds.synthesize(maxAttempts, shouldStop, accumulateNewLemmas,
-      learnedLemma);
+      learnedLemma, gotFailure, gotGarbage);
   }
 }
 
