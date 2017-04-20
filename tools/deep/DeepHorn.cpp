@@ -48,10 +48,6 @@ int main (int argc, char **argv)
     return 1;
   }
 
-  if (world.rank() != 1) {
-    sleep(10);
-  }
-
   int maxAttempts = 2000000;       //default
   if (argc > 2) maxAttempts = atoi(argv[1]);
 
