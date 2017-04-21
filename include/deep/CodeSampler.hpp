@@ -128,9 +128,11 @@ namespace ufo
       
       expr::filter (term, bind::IsConst(), std::inserter (actualVars, actualVars.begin ()));
       
+      term = rewriteMultAdd(term);
+      
       bool locals = false;
       if (actualVars.size() == 0 || isTautology(term)) return;
-      
+            
       // split each term to two samples (for srcVars and dstVars)
       addSampleHlp(term, hr.srcVars, actualVars);
       addSampleHlp(term, hr.dstVars, actualVars);
