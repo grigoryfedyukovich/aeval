@@ -375,6 +375,7 @@ namespace ufo
 
       std::srand(std::time(0));
 
+      auto start = std::chrono::steady_clock::now();
       for (int i = 0; i < maxAttempts; i++)
       {
         // bail if we've been cancelled
@@ -446,8 +447,13 @@ namespace ufo
       }
 
       if (success) {
-        outs () << "\n -----> Success after " << --iter << " iterations\n";
-        outs () << "        total number of SMT checks: " << numOfSMTChecks << "\n";
+        auto end = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration<double, milli>(end - start);
+        stringstream elapsedStream;
+        elapsedStream << fixed << setprecision(2) << elapsed.count()/1000.0;
+        outs () << "\n -----> Success after " << --iter << " iterations, \n";
+        outs () << "        total number of SMT checks: " << numOfSMTChecks << ",\n";
+        outs () << "        elapsed: " << elapsedStream.str() << "s\n";
         return SynthResult(true, false);
       } else {
         outs () << "\nNo success after " << maxAttempts << " iterations\n";
