@@ -52,7 +52,8 @@ int main (int argc, char **argv)
     PeerResult result { PeerResultKindLemma, declIdx, disj };
     sendToOthers(world, MSG_RESULT, result);
   };
-  const auto gotFailure = [&world](unsigned declIdx, LAdisj& disj) {
+  const auto gotFailure = [&world, aggressivepruning](unsigned declIdx, LAdisj& disj) {
+    if (!aggressivepruning) return;
     PeerResult result { PeerResultKindFailure, declIdx, disj };
     sendToOthers(world, MSG_RESULT, result);
   };
