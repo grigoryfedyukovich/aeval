@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import time
+import json
 import argparse
 import tempfile
 import subprocess
@@ -46,11 +47,16 @@ def main():
                         help="show histogram of times (only one smt)")
     parser.add_argument("-i", "--iters", default=100, type=int,
                         help="the number of times to run deephorn per pcnt")
+    parser.add_argument("-o", "--outdir", type=str,
+                        help="path to directory to save times and/or histograms")
     args = parser.parse_args()
 
     if args.hist and len(args.SMTPATHS) > 1:
         print("--hist only compatible with a single path", file=sys.stderr)
         return 1
+
+    if args.outdir and not os.path.exists(args.outdir):
+        os.makedirs(args.outdir)
 
     times = {s: {num: [] for num in PROC_NUMS_TO_TRY} for s in args.SMTPATHS}
     unsuccess_cnts = {s: 0 for s in args.SMTPATHS}
@@ -69,6 +75,11 @@ def main():
                     times[spath][pcnt].append(t)
     except KeyboardInterrupt:
         pass
+
+    # Save the times
+    if args.outdir:
+        with open(os.path.join(args.outdir, "times.json"), 'w') as f:
+            json.dump({'times': times, 'unsuccess_cnts': unsuccess_cnts}, f)
 
     # Print the times
     for smtpath, subtime in times.iteritems():
