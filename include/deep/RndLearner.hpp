@@ -383,6 +383,7 @@ namespace ufo
           return SynthResult(false, true);
         }
 
+        bool receivedLemma = false;
         // Opportunity to integrate external results
         for (PeerResult& d : accumulatePeerResults()) {
           LAfactory& laf = lfs[d.declIdx];
@@ -394,13 +395,28 @@ namespace ufo
             laf.assignPrioritiesForLearnt(disj);
             laf.learntExprs.insert(laf.toExpr(disj));
             laf.learntLemmas.push_back(laf.samples.size() - 1);
+            curCandidates[d.declIdx] = laf.toExpr(disj);
+            receivedLemma = true;
             break;
           case PeerResultKindFailure:
-            laf.assignPrioritiesForFailed(disj);
+            if (aggressivepruning) laf.assignPrioritiesForFailed(disj);
             break;
           case PeerResultKindGarbage:
             laf.assignPrioritiesForGarbage(disj);
             break;
+          }
+        }
+
+        if (receivedLemma)
+        {                          // each time we receive a lemma,
+          if (checkSafety())       // there is a need to push it to m_smt_safety_solver
+          {                        // and to re-check safety
+            success = true;
+            break;
+          }
+          else
+          {
+            for (int j = 0; j < invNumber(); j++) curCandidates[j] = NULL; // keep guessing
           }
         }
 
@@ -476,7 +492,7 @@ namespace ufo
 
     CHCs ruleManager(m_efac, z3);
     ruleManager.parse(smt);
-    ruleManager.print();
+//    ruleManager.print();
 
     RndLearner ds(m_efac, z3, ruleManager, b1, b2, b3);
 
