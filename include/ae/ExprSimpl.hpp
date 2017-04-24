@@ -422,6 +422,13 @@ namespace ufo
         mknary<OR>(disjs);
   }
   
+  template<typename Range> static Expr mkplus(Range& terms, ExprFactory &efac){
+    return
+      (terms.size() == 0) ? mkTerm (mpz_class (0), efac) :
+      (terms.size() == 1) ? *terms.begin() :
+        mknary<PLUS>(terms);
+  }
+  
   /**
    * Simplifier Wrapper
    */
@@ -859,6 +866,44 @@ namespace ufo
     {
       terms.push_back(a);
     }
+  }
+  
+  struct AddMultDistr
+  {
+    AddMultDistr () {};
+    
+    Expr operator() (Expr exp)
+    {
+      if (isOpX<MULT>(exp))
+      {
+        Expr lhs = exp->left();
+        Expr rhs = exp->right();
+        
+        ExprVector alllhs;
+        getAddTerm(lhs, alllhs);
+        
+        ExprVector allrhs;
+        getAddTerm(rhs, allrhs);
+        
+        ExprVector unf;
+        for (auto &a : alllhs)
+        {
+          for (auto &b : allrhs)
+          {
+            unf.push_back(mk<MULT>(a, b));
+          }
+        }
+        return mkplus(unf, exp->getFactory());
+      }
+      
+      return exp;
+    }
+  };
+  
+  inline static Expr rewriteMultAdd (Expr exp)
+  {
+    RW<AddMultDistr> mu(new AddMultDistr());
+    return dagVisit (mu, exp);
   }
   
   inline static void getConj (Expr a, ExprSet &conjs)

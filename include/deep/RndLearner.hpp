@@ -256,7 +256,7 @@ namespace ufo
         }
       }
 
-      for (auto &a : intCoefs) lf.addIntCoef(a);
+      for (auto &a : intCoefs) if (a != 0) lf.addIntCoef(a);
 
       for (auto &a : intCoefs)
       {
