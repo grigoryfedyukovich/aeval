@@ -23,10 +23,12 @@ namespace ufo
     HornRuleExt& hr;
     Expr invDecl;
     ExprVector invVars;
+    ExprMap& extraVars;
     
     Expr zero;
     
-    CodeSampler(HornRuleExt& r, Expr& d, ExprVector& v) : hr(r), invDecl(d), invVars(v)
+    CodeSampler(HornRuleExt& r, Expr& d, ExprVector& v, ExprMap& e) :
+      hr(r), invDecl(d), invVars(v), extraVars(e)
     {
       // add some "universal" constants
       intConsts.insert(0);
@@ -104,6 +106,13 @@ namespace ufo
       
       if (! found) return;
       
+      for (auto &v : actualVars)
+      {
+        int index1 = getVarIndex(v, srcVars);
+        int index2 = getVarIndex(v, dstVars);
+        if (index1 == -1 && index2 == -1) return;
+      }
+      
       ExprVector vars;
       for (auto &v : actualVars) vars.push_back(v);
 
@@ -130,6 +139,11 @@ namespace ufo
       
       term = rewriteMultAdd(term);
       
+      term = findNonlinAndRewrite(term, hr.srcVars, invVars, extraVars);
+      term = findNonlinAndRewrite(term, hr.dstVars, invVars, extraVars);
+      
+      for (auto &a : extraVars) actualVars.insert(a.second);
+
       bool locals = false;
       if (actualVars.size() == 0 || isTautology(term)) return;
             

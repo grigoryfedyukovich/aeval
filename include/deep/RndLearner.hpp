@@ -228,7 +228,7 @@ namespace ufo
       {
         if (hr.dstRelation != decls.back() && hr.srcRelation != decls.back()) continue;
         
-        css.push_back(CodeSampler(hr, invDecl, lf.getVars()));
+        css.push_back(CodeSampler(hr, invDecl, lf.getVars(), lf.nonlinVars));
         css.back().analyzeCode(densecode, shrink);
         
         // convert intConsts to progConsts and add additive inverses (if applicable):
@@ -244,6 +244,13 @@ namespace ufo
           intCoefs.insert( a);
           intCoefs.insert(-a);
         }
+      }
+      
+      outs() << "Multed vars: ";
+      for (auto &a : lf.nonlinVars)
+      {
+        outs() << *a.first << " = " << *a.second << "\n";
+        lf.addVar(a.second);
       }
       
       for (auto &a : intCoefs) if (a != 0) lf.addIntCoef(a);
