@@ -41,6 +41,7 @@ namespace ufo
     
     void addSampleHlp(Expr tmpl, ExprVector& vars, ExprSet& actualVars)
     {
+      ExprVector invVarsCstm = invVars;
       for (auto &v : actualVars)
       {
         int index = getVarIndex(v, vars);
@@ -50,11 +51,23 @@ namespace ufo
         }
         else
         {
-          return; // tmpl = replaceAll(tmpl, v, zero);
+          int notfound = true;
+          for (auto &a : extraVars)
+          {
+            if (a.second == v)
+            {
+              invVarsCstm.push_back(v);
+              notfound = false;
+              break;
+            }
+          }
+          if (notfound)
+          {
+            return; // tmpl = replaceAll(tmpl, v, zero);
+          }
         }
       }
-      Expr tmpl2 = normalizeDisj(tmpl, invVars);
-      
+      Expr tmpl2 = normalizeDisj(tmpl, invVarsCstm);
       if (!isOpX<FALSE> (tmpl2) && !isOpX<TRUE> (tmpl2))
       {
         candidates.insert(tmpl2);
