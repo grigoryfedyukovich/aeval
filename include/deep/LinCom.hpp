@@ -881,10 +881,8 @@ namespace ufo
       
       for (int i = 0; i < failed.arity; i++)
       {
-        for (int j = prVarsDistrRange - 1; j >= 0; j--)
-        {
-          distrs[i][j] = PRIORNOVISIT;
-        }
+        LAterm& s = failed.dstate[i];
+        distrs[i][s.intconst * 2] = PRIORNOVISIT;
         isVisited(id, i);
       }
     }
@@ -898,37 +896,20 @@ namespace ufo
       
       for (int i = 0; i < failed.arity; i++)
       {
-        // preps:
         LAterm& s = failed.dstate[i];
         
-        if (getIndexGT() == s.cmpop)
+        int lim = s.intconst * 2 + (getIndexGT() == s.cmpop ? 1 : 0);
+        for (int j = 0; j < prVarsDistrRange ; j++)
         {
-          int lim = s.intconst * 2 + 1;
-          for (int j = prVarsDistrRange - 1; j >= 0; j--)
+          if (j >= lim)
           {
-            if (j >= lim)
-            {
-              distrs[i][j] = PRIORNOVISIT;
-            }
-            else
-            {
-              distrs[i][j] = min ( distrs[i][j], (lim - j) * PRIORSTEP);
-            }
+            // block all constants which are greater or equal than intconst
+            distrs[i][j] = PRIORNOVISIT;
           }
-        }
-        else if (getIndexGE() == s.cmpop)
-        {
-          int lim = s.intconst * 2 ;
-          for (int j = prVarsDistrRange - 1; j >= 0; j--)
+          else
           {
-            if (j >= lim)
-            {
-              distrs[i][j] = PRIORNOVISIT;
-            }
-            else
-            {
-              distrs[i][j] = min ( distrs[i][j], (lim - j) * PRIORSTEP);
-            }
+            // the farther constant from s.intconst the higher priority to visit it later
+            distrs[i][j] = min ( distrs[i][j], (lim - j) * PRIORSTEP );
           }
         }
         
@@ -947,36 +928,18 @@ namespace ufo
       {
         LAterm& s = learnt.dstate[i];
         
-        if (getIndexGT() == s.cmpop)  // ax + by > c => ax + by > d, \forall d < c
+        int lim = s.intconst * 2 + (getIndexGT() == s.cmpop ? 1 : 0);
+        for (int j = 0; j < prVarsDistrRange ; j++)
         {
-          // block all constants which are less or equal than intconst
-          
-          int lim = s.intconst * 2 + 1;
-          for (int j = 0; j < prVarsDistrRange ; j++)
+          if (j < lim)
           {
-            if (j < lim)
-            {
-              distrs[i][j] = PRIORNOVISIT;
-            }
-            else
-            {
-              distrs[i][j] = min ( distrs[i][j], (j - lim) * PRIORSTEP);
-            }
+            // block all constants which are less or equal than intconst
+            distrs[i][j] = PRIORNOVISIT;
           }
-        }
-        else if (getIndexGE() == s.cmpop)  // ax + by >= c => ax + by >= d, \forall d < c
-        {
-          int lim = s.intconst * 2;
-          for (int j = 0; j < prVarsDistrRange ; j++)
+          else
           {
-            if (j < lim)
-            {
-              distrs[i][j] = PRIORNOVISIT;
-            }
-            else
-            {
-              distrs[i][j] = min ( distrs[i][j], (j - lim) * PRIORSTEP);
-            }
+            // the farther constant from intconst the higher priority to visit it later
+            distrs[i][j] = min ( distrs[i][j], (j - lim) * PRIORSTEP );
           }
         }
         
