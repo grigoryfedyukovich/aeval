@@ -1,11 +1,11 @@
 #ifndef DISTRIBUTED_HPP__
 #define DISTRIBUTED_HPP__
 
+#include <boost/mpi.hpp>
 #include "LinCom.hpp"
 
 using namespace ufo;
 using namespace std;
-namespace mpi = boost::mpi;
 
 #define MSG_TAG_COMPLETE 1
 #define MSG_RESULT 2
@@ -33,16 +33,16 @@ void serialize(Archive& ar, PeerResult& pr, const unsigned int version)
 
 // point-to-point MPI send to all other workers; blocks for send completions
 template<typename T>
-void sendToOthers(mpi::communicator world, int tag, const T &t)
+void sendToOthers(boost::mpi::communicator world, int tag, const T &t)
 {
-  vector<mpi::request> completionReqs(world.size() - 1);
+  vector<boost::mpi::request> completionReqs(world.size() - 1);
   for (size_t i = 0; i < world.size(); i++) {
     if (i != world.rank()) {
-      mpi::request r = world.isend(i, tag, t);
+      boost::mpi::request r = world.isend(i, tag, t);
       completionReqs.push_back(r);
     }
   }
-  mpi::wait_all(completionReqs.begin(), completionReqs.end());
+  boost::mpi::wait_all(completionReqs.begin(), completionReqs.end());
 }
 
 #endif

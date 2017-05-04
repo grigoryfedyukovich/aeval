@@ -21,9 +21,9 @@ class NoSuccessException(Exception):
 
 
 def run_deephorn(example_path, proc_cnt, logs_dir_path):
-    cmd = "/usr/local/bin/mpirun"
+    cmd = "/usr/bin/mpirun"
     retcode = subprocess.Popen(
-        [cmd, "-n", str(proc_cnt),
+        [cmd, "-mca", "btl", "^openib", "-n", str(proc_cnt),
             "-output-filename", os.path.join(logs_dir_path, "log"),
             "../../build/tools/deep/deephorn", example_path],
         env={"TMPDIR": "/tmp", "PATH": os.getenv("PATH")}).wait()
@@ -60,6 +60,7 @@ def main():
                         help="the number of times to run deephorn per pcnt")
     parser.add_argument("-o", "--outdir", type=str,
                         help="path to directory to save times and/or histograms")
+    parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
     if args.hist and len(args.SMTPATHS) > 1:
@@ -76,6 +77,8 @@ def main():
         for i in range(args.iters):
             for spath in args.SMTPATHS:
                 tmp_dir = tempfile.mkdtemp()
+                if args.verbose:
+                    print("tmpdir:", spath, "=", tmp_dir)
                 for pcnt in PROCS_TO_TRY:
                     start = time.time()
                     run_deephorn(spath, pcnt, tmp_dir)

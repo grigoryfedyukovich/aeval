@@ -1,6 +1,7 @@
 #ifndef RNDLEARNER__HPP__
 #define RNDLEARNER__HPP__
 
+#include <chrono>
 #include "Horn.hpp"
 #include "CodeSampler.hpp"
 #include "Distribution.hpp"
@@ -471,7 +472,7 @@ namespace ufo
 
       if (success) {
         auto end = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration<double, milli>(end - start);
+        auto elapsed = std::chrono::duration<double, std::milli>(end - start);
         stringstream elapsedStream;
         elapsedStream << fixed << setprecision(2) << elapsed.count()/1000.0;
         outs () << "\n -----> Success after " << --iter << " iterations, \n";

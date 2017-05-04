@@ -10,8 +10,8 @@ using namespace std;
 int main (int argc, char **argv)
 {
   // Initialize MPI
-  mpi::environment env(argc, argv);
-  mpi::communicator world;
+  boost::mpi::environment env(argc, argv);
+  boost::mpi::communicator world;
 
   // Parse command-line arguments
   if (argc == 1) {
@@ -37,13 +37,13 @@ int main (int argc, char **argv)
 
   // Callbacks for `learnInvariants`
   const auto shouldStop = [&world]() -> bool {
-    return (bool)world.iprobe(mpi::any_source, MSG_TAG_COMPLETE);
+    return (bool)world.iprobe(boost::mpi::any_source, MSG_TAG_COMPLETE);
   };
   const auto accumulateNewLemmas = [&world]() -> vector<PeerResult> {
     auto lemmas = vector<PeerResult>();
-    if (world.iprobe(mpi::any_source, MSG_RESULT)) {
+    if (world.iprobe(boost::mpi::any_source, MSG_RESULT)) {
       PeerResult result;
-      world.recv(mpi::any_source, MSG_RESULT, result);
+      world.recv(boost::mpi::any_source, MSG_RESULT, result);
       lemmas.push_back(result);
     }
     return lemmas;
