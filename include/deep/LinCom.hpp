@@ -222,6 +222,8 @@ namespace ufo
     int indexGE;
 
     public:
+    
+    ExprMap nonlinVars;
 
     // set of fields related to guessing:
 
@@ -363,12 +365,17 @@ namespace ufo
       return mknary<PLUS> (apps);
     }
 
-    Expr toExpr (LAterm& s)
+    Expr toExpr (LAterm& s, bool replaceNonlin=true)
     {
       Expr templ = cmpOps [ s.cmpop ];
       Expr ic = intConstsE [ s.intconst ];
       Expr lc = assembleLinComb(s);
-      return getAtom(templ, lc, ic);     // compile all ingredients
+      Expr ineq = getAtom(templ, lc, ic);
+
+      if (replaceNonlin)
+        for (auto &a : nonlinVars) ineq = replaceAll(ineq, a.second, a.first);
+
+      return ineq;
     }
 
     Expr toExpr (LAdisj& curCandCode)

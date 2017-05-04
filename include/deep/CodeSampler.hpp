@@ -23,10 +23,12 @@ namespace ufo
     HornRuleExt& hr;
     Expr invDecl;
     ExprVector invVars;
+    ExprMap& extraVars;
     
     Expr zero;
     
-    CodeSampler(HornRuleExt& r, Expr& d, ExprVector& v) : hr(r), invDecl(d), invVars(v)
+    CodeSampler(HornRuleExt& r, Expr& d, ExprVector& v, ExprMap& e) :
+      hr(r), invDecl(d), invVars(v), extraVars(e)
     {
       // add some "universal" constants
       intConsts.insert(0);
@@ -39,6 +41,7 @@ namespace ufo
     
     void addSampleHlp(Expr tmpl, ExprVector& vars, ExprSet& actualVars)
     {
+      ExprVector invVarsCstm = invVars;
       for (auto &v : actualVars)
       {
         int index = getVarIndex(v, vars);
@@ -48,11 +51,23 @@ namespace ufo
         }
         else
         {
-          return; // tmpl = replaceAll(tmpl, v, zero);
+          int notfound = true;
+          for (auto &a : extraVars)
+          {
+            if (a.second == v)
+            {
+              invVarsCstm.push_back(v);
+              notfound = false;
+              break;
+            }
+          }
+          if (notfound)
+          {
+            return; // tmpl = replaceAll(tmpl, v, zero);
+          }
         }
       }
-      Expr tmpl2 = normalizeDisj(tmpl, invVars);
-      
+      Expr tmpl2 = normalizeDisj(tmpl, invVarsCstm);
       if (!isOpX<FALSE> (tmpl2) && !isOpX<TRUE> (tmpl2))
       {
         candidates.insert(tmpl2);
@@ -104,6 +119,13 @@ namespace ufo
       
       if (! found) return;
       
+      for (auto &v : actualVars)
+      {
+        int index1 = getVarIndex(v, srcVars);
+        int index2 = getVarIndex(v, dstVars);
+        if (index1 == -1 && index2 == -1) return;
+      }
+      
       ExprVector vars;
       for (auto &v : actualVars) vars.push_back(v);
 
@@ -130,6 +152,11 @@ namespace ufo
       
       term = rewriteMultAdd(term);
       
+      term = findNonlinAndRewrite(term, hr.srcVars, invVars, extraVars);
+      term = findNonlinAndRewrite(term, hr.dstVars, invVars, extraVars);
+      
+      for (auto &a : extraVars) actualVars.insert(a.second);
+
       bool locals = false;
       if (actualVars.size() == 0 || isTautology(term)) return;
             

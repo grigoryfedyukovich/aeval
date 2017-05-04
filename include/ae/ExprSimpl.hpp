@@ -906,6 +906,74 @@ namespace ufo
     return dagVisit (mu, exp);
   }
   
+  inline static Expr reBuildBin(Expr term, Expr lhs, Expr rhs);
+  
+  struct FindNonlinAndRewrite
+  {
+    ExprVector& vars;
+    ExprVector& vars2;
+    ExprMap& extraVars;
+    
+    FindNonlinAndRewrite (ExprVector& _vars, ExprVector& _vars2, ExprMap& _extraVars) :
+      vars(_vars), vars2(_vars2), extraVars(_extraVars) {};
+    
+    Expr operator() (Expr t)
+    {
+      if (isOpX<MULT>(t))
+      {
+        ExprVector varsForMult;
+        Expr multedConsts;
+        for (unsigned j = 0; j < t->arity(); j++)
+        {
+          Expr q = t->arg(j);
+          if (expr::op::bind::isIntConst(q))
+          {
+            int ind = getVarIndex(q, vars);
+            if (ind == -1) return t;
+            varsForMult.push_back(vars2[ind]);
+          }
+          else
+          {
+            // GF: to ensure that it is indeed const
+            multedConsts = (multedConsts == NULL) ? q : mk<MULT>(multedConsts, q);
+          }
+        }
+        if (varsForMult.size() > 1)
+        {
+          Expr multedVars = mknary<MULT>(varsForMult);
+          if (extraVars[multedVars] == NULL)
+          {
+            Expr new_name = mkTerm<string> ("__e__" + to_string(extraVars.size()), t->getFactory());
+            Expr var = bind::mkConst(new_name, varsForMult[0]);
+            extraVars[multedVars] = var;
+          }
+          return (multedConsts == NULL) ? extraVars[multedVars] : mk<MULT>(multedConsts, extraVars[multedVars]);
+        }
+      }
+      else if (isOpX<MOD>(t) || isOpX<IDIV>(t) || isOpX<DIV>(t))
+      {
+        int indl = getVarIndex(t->left(), vars);
+        int indr = getVarIndex(t->right(), vars);
+        Expr key = reBuildBin(t, vars2[indl], vars2[indr]);
+        if (extraVars[key] == NULL)
+        {
+          Expr new_name = mkTerm<string> ("__e__" + to_string(extraVars.size()), t->getFactory());
+          Expr var = bind::mkConst(new_name, t->left());
+          extraVars[key] = var;
+        }
+        return extraVars[key];
+      }
+      return t;
+    }
+  };
+  
+  inline static Expr findNonlinAndRewrite (Expr exp, ExprVector& vars, ExprVector& vars2, ExprMap& extraVars)
+  {
+    RW<FindNonlinAndRewrite> mu(new FindNonlinAndRewrite(vars, vars2, extraVars));
+    return dagVisit (mu, exp);
+  }
+  
+  
   inline static void getConj (Expr a, ExprSet &conjs)
   {
     if (isOpX<TRUE>(a)) return;
@@ -1060,6 +1128,26 @@ namespace ufo
     }
     assert(isOpX<GT>(term));
     return mk<GT>(lhs, rhs);
+  }
+  
+  // not very pretty method, but..
+  inline static Expr reBuildBin(Expr term, Expr lhs, Expr rhs)
+  {
+    if (isOpX<DIV>(term))
+    {
+      return mk<DIV>(lhs, rhs);
+    }
+    if (isOpX<IDIV>(term))
+    {
+      return mk<IDIV>(lhs, rhs);
+    }
+    if (isOpX<MOD>(term))
+    {
+      return mk<MOD>(lhs, rhs);
+    }
+    
+    assert(0);
+    return term;
   }
   
   inline static Expr reBuildNegCmp(Expr term, Expr lhs, Expr rhs)
@@ -1334,20 +1422,46 @@ namespace ufo
         int coef = 0;
         for (auto it = all.begin(); it != all.end();)
         {
-          if(v == *it)
+          string s1 = lexical_cast<string>(v);
+          string s2 = lexical_cast<string>(*it);
+          
+          if(s1 == s2)
           {
             coef++;
             it = all.erase(it);
           }
-          else if (isOpX<UN_MINUS>(*it) && (*it)->left() == v)
+          else if (isOpX<UN_MINUS>(*it))
           {
-            coef--;
-            it = all.erase(it);
+            string s3 = lexical_cast<string>((*it)->left());
+            if (s1 == s3)
+            {
+              coef--;
+              it = all.erase(it);
+            }
+            else
+            {
+              ++it;
+            }
           }
-          else if (isOpX<MULT>(*it) && (*it)->right() == v)
+          else if (isOpX<MULT>(*it))
           {
-            coef += lexical_cast<int>((*it)->left());
-            it = all.erase(it);
+            string s3 = lexical_cast<string>((*it)->left());
+            string s4 = lexical_cast<string>((*it)->right());
+            
+            if (s1 == s3)
+            {
+              coef += lexical_cast<int>((*it)->right());
+              it = all.erase(it);
+            }
+            else if (s1 == s4)
+            {
+              coef += lexical_cast<int>((*it)->left());
+              it = all.erase(it);
+            }
+            else
+            {
+              ++it;
+            }
           }
           else
           {
@@ -1365,6 +1479,15 @@ namespace ufo
         if (isNumericConst(e))
         {
           intconst += lexical_cast<int>(e);
+        }
+        else if (isOpX<MULT>(e))
+        {
+          // GF: sometimes it fails (no idea why)
+          int thisTerm = 1;
+          for (auto it = e->args_begin (), end = e->args_end (); it != end; ++it)
+            thisTerm *= lexical_cast<int>(*it);
+          
+          intconst += thisTerm;
         }
         else
         {
@@ -1384,7 +1507,6 @@ namespace ufo
         Expr c = mkTerm (mpz_class (-intconst), term->getFactory());
         return reBuildCmp(term, pl, c);
       }
-      
     }
     return term;
   }
