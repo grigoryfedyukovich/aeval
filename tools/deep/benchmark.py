@@ -21,6 +21,10 @@ class NoSuccessException(Exception):
     pass
 
 
+def name_only(path):
+    return os.path.splitext(os.path.split(path)[1])[0].lower()
+
+
 def run_deephorn(example_path, proc_cnt, aggprune, logs_dir_path):
     aggprune_arg = "0"
     if aggprune:
@@ -91,16 +95,18 @@ def main():
     iter_cnts = {s: {num: [] for num in hyperp_names()} for s in args.SMTPATHS}
     unsuccess_cnts = {s: 0 for s in args.SMTPATHS}
     try:
+        tmp_dir = tempfile.mkdtemp()
         for i in range(args.iters):
             for spath in args.SMTPATHS:
-                tmp_dir = tempfile.mkdtemp()
-                if args.verbose:
-                    print("tmpdir:", spath, "=", tmp_dir)
                 for (pcnt, aggprune), hypername in izip(hyperps(), hyperp_names()):
                     start = time.time()
-                    run_deephorn(spath, pcnt, aggprune, tmp_dir)
+                    log_path = os.path.join(tmp_dir, name_only(spath), hypername, str(i))
+                    if args.verbose:
+                        print("logs:", spath, "=", log_path)
+                    os.makedirs(log_path)
+                    run_deephorn(spath, pcnt, aggprune, log_path)
                     try:
-                        i, t = parse_log_dir_for_time(tmp_dir)
+                        i, t = parse_log_dir_for_time(log_path)
                     except NoSuccessException:
                         t = time.time() - start
                         unsuccess_cnts[spath] += 1
