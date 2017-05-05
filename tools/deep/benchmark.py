@@ -96,11 +96,11 @@ def main():
     unsuccess_cnts = {s: 0 for s in args.SMTPATHS}
     try:
         tmp_dir = tempfile.mkdtemp()
-        for i in range(args.iters):
+        for iter_ in xrange(args.iters):
             for spath in args.SMTPATHS:
                 for (pcnt, aggprune), hypername in izip(hyperps(), hyperp_names()):
                     start = time.time()
-                    log_path = os.path.join(tmp_dir, name_only(spath), hypername, str(i))
+                    log_path = os.path.join(tmp_dir, name_only(spath), hypername, str(iter_))
                     if args.verbose:
                         print("logs:", spath, "=", log_path)
                     os.makedirs(log_path)
