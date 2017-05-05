@@ -9,6 +9,7 @@ import json
 import argparse
 import tempfile
 import subprocess
+from itertools import product, izip
 
 
 SUCCESS_ITERS_RE = re.compile(r'\s*\-+>\s+Success after (.*) iterations\s*')
@@ -20,12 +21,16 @@ class NoSuccessException(Exception):
     pass
 
 
-def run_deephorn(example_path, proc_cnt, logs_dir_path):
+def run_deephorn(example_path, proc_cnt, aggprune, logs_dir_path):
+    aggprune_arg = "0"
+    if aggprune:
+        aggprune_arg = "1"
     cmd = "/usr/bin/mpirun"
     retcode = subprocess.Popen(
         [cmd, "-mca", "btl", "^openib", "-n", str(proc_cnt),
             "-output-filename", os.path.join(logs_dir_path, "log"),
-            "../../build/tools/deep/deephorn", example_path],
+            "../../build/tools/deep/deephorn", "2000000", "1", "1",
+            aggprune_arg, example_path],
         env={"TMPDIR": "/tmp", "PATH": os.getenv("PATH")}).wait()
     if retcode != 0:
         raise subprocess.CalledProcessError(retcode, cmd)
@@ -51,6 +56,18 @@ def parse_log_dir_for_time(dirpath):
     raise NoSuccessException("no success in " + dirpath)
 
 
+def hyperps():
+    return product(PROCS_TO_TRY, [True, False])
+
+
+def hyperp_names():
+    for p, a in hyperps():
+        aname = "agg_off"
+        if a:
+            aname = "agg_on"
+        yield str(p) + "," + aname
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("SMTPATHS", nargs='+')
@@ -70,8 +87,8 @@ def main():
     if args.outdir and not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
 
-    times = {s: {num: [] for num in PROCS_TO_TRY} for s in args.SMTPATHS}
-    iter_cnts = {s: {num: [] for num in PROCS_TO_TRY} for s in args.SMTPATHS}
+    times = {s: {num: [] for num in hyperp_names()} for s in args.SMTPATHS}
+    iter_cnts = {s: {num: [] for num in hyperp_names()} for s in args.SMTPATHS}
     unsuccess_cnts = {s: 0 for s in args.SMTPATHS}
     try:
         for i in range(args.iters):
@@ -79,25 +96,25 @@ def main():
                 tmp_dir = tempfile.mkdtemp()
                 if args.verbose:
                     print("tmpdir:", spath, "=", tmp_dir)
-                for pcnt in PROCS_TO_TRY:
+                for (pcnt, aggprune), hypername in izip(hyperps(), hyperp_names()):
                     start = time.time()
-                    run_deephorn(spath, pcnt, tmp_dir)
+                    run_deephorn(spath, pcnt, aggprune, tmp_dir)
                     try:
                         i, t = parse_log_dir_for_time(tmp_dir)
                     except NoSuccessException:
                         t = time.time() - start
                         unsuccess_cnts[spath] += 1
-                    times[spath][pcnt].append(t)
-                    iter_cnts[spath][pcnt].append(i)
+                    times[spath][hypername].append(t)
+                    iter_cnts[spath][hypername].append(i)
+
+                # Checkpoint the times after each benchmark
+                if args.outdir:
+                    with open(os.path.join(args.outdir, "times.json"), 'w') as f:
+                        json.dump({'times': times,
+                                   'iterCnts': iter_cnts,
+                                   'unsuccessCnts': unsuccess_cnts}, f)
     except KeyboardInterrupt:
         pass
-
-    # Save the times
-    if args.outdir:
-        with open(os.path.join(args.outdir, "times.json"), 'w') as f:
-            json.dump({'times': times,
-                       'iter_cnts': iter_cnts,
-                       'unsuccess_cnts': unsuccess_cnts}, f)
 
     # Print the times
     for smtpath in times.iterkeys():
