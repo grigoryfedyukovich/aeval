@@ -8,6 +8,7 @@ import json
 import argparse
 import tempfile
 import subprocess
+import traceback
 from itertools import product, izip
 
 
@@ -111,7 +112,11 @@ def main():
                     if args.verbose:
                         print("logs:", spath, "=", log_path)
                     os.makedirs(log_path)
-                    run_deephorn(spath, pcnt, aggprune, log_path)
+                    try:
+                        run_deephorn(spath, pcnt, aggprune, log_path)
+                    except subprocess.CalledProcessError:
+                        traceback.print_exc()
+                        continue
                     try:
                         i, t = parse_log_dir_for_time(log_path)
                     except NoSuccessException:
