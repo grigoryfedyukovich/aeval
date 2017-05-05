@@ -4,7 +4,6 @@ import os
 import re
 import sys
 import math
-import time
 import json
 import argparse
 import tempfile
@@ -81,6 +80,8 @@ def main():
                         help="the number of times to run deephorn per pcnt")
     parser.add_argument("-o", "--outdir", type=str,
                         help="path to directory to save times and/or histograms")
+    parser.add_argument("--logdir", type=str,
+                        help="path to directory to save logs")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -88,18 +89,24 @@ def main():
         print("--hist only compatible with a single path", file=sys.stderr)
         return 1
 
+    if args.logdir and os.path.exists(args.logdir):
+        print("logdir already exists", file=sys.stderr)
+        return 2
+
     if args.outdir and not os.path.exists(args.outdir):
         os.makedirs(args.outdir)
 
-    times = {s: {num: [] for num in hyperp_names()} for s in args.SMTPATHS}
-    iter_cnts = {s: {num: [] for num in hyperp_names()} for s in args.SMTPATHS}
-    unsuccess_cnts = {s: 0 for s in args.SMTPATHS}
+    times = {s: {k: [] for k in hyperp_names()} for s in args.SMTPATHS}
+    iter_cnts = {s: {k: [] for k in hyperp_names()} for s in args.SMTPATHS}
+    unsuccess_cnts = {s: {k: 0 for k in hyperp_names()} for s in args.SMTPATHS}
     try:
-        tmp_dir = tempfile.mkdtemp()
+        if args.logdir:
+            tmp_dir = args.logdir
+        else:
+            tmp_dir = tempfile.mkdtemp()
         for iter_ in xrange(args.iters):
             for spath in args.SMTPATHS:
                 for (pcnt, aggprune), hypername in izip(hyperps(), hyperp_names()):
-                    start = time.time()
                     log_path = os.path.join(tmp_dir, name_only(spath), hypername, str(iter_))
                     if args.verbose:
                         print("logs:", spath, "=", log_path)
@@ -108,8 +115,7 @@ def main():
                     try:
                         i, t = parse_log_dir_for_time(log_path)
                     except NoSuccessException:
-                        t = time.time() - start
-                        unsuccess_cnts[spath] += 1
+                        unsuccess_cnts[spath][hypername] += 1
                     times[spath][hypername].append(t)
                     iter_cnts[spath][hypername].append(i)
 
@@ -126,8 +132,9 @@ def main():
     for smtpath in times.iterkeys():
         subtime, subiters = times[smtpath], iter_cnts[smtpath]
         asterisk = ":"
-        if unsuccess_cnts[smtpath]:
-            asterisk = " [unsuccessful " + str(unsuccess_cnts[smtpath]) + "]:"
+        total_unsuc = sum(unsuccess_cnts[smtpath].values())
+        if total_unsuc:
+            asterisk = " [unsuccessful " + str(total_unsuc) + "]:"
         print(smtpath + asterisk)
         for pcnt, t in subtime.iteritems():
             print("\t" + str(pcnt) + " process(es) took: " + str(sorted(t)))
