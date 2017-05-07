@@ -7,7 +7,7 @@ import math
 import json
 import argparse
 import tempfile
-import subprocess
+import subprocess32
 import traceback
 from itertools import product, izip
 
@@ -30,14 +30,20 @@ def run_deephorn(example_path, proc_cnt, aggprune, logs_dir_path):
     if aggprune:
         aggprune_arg = "1"
     cmd = "/usr/bin/mpirun"
-    retcode = subprocess.Popen(
+    proc = subprocess32.Popen(
         [cmd, "-mca", "btl", "^openib", "-n", str(proc_cnt),
             "-output-filename", os.path.join(logs_dir_path, "log"),
             "../../build/tools/deep/deephorn", "2000000", "1", "1",
             aggprune_arg, example_path],
-        env={"TMPDIR": "/tmp", "PATH": os.getenv("PATH")}).wait()
-    if retcode != 0:
-        raise subprocess.CalledProcessError(retcode, cmd)
+        env={"TMPDIR": "/tmp", "PATH": os.getenv("PATH")})
+    try:
+        retcode = proc.wait(timeout=60*7)
+    except subprocess32.TimeoutExpired:
+        proc.kill()
+        raise
+    else:
+	if retcode != 0:
+            raise subprocess32.CalledProcessError(retcode, cmd)
 
 
 def parse_log_dir_for_time(dirpath):
@@ -114,7 +120,10 @@ def main():
                     os.makedirs(log_path)
                     try:
                         run_deephorn(spath, pcnt, aggprune, log_path)
-                    except subprocess.CalledProcessError:
+                    except subprocess32.TimeoutExpired:
+                        print("Timeout expired", file=sys.stderr)
+                        continue
+                    except subprocess32.CalledProcessError:
                         traceback.print_exc()
                         continue
                     try:
