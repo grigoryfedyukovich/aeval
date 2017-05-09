@@ -42,7 +42,7 @@ def run_deephorn(example_path, proc_cnt, aggprune, logs_dir_path):
         proc.kill()
         raise
     else:
-	if retcode != 0:
+        if retcode != 0:
             raise subprocess32.CalledProcessError(retcode, cmd)
 
 
@@ -128,10 +128,10 @@ def main():
                         continue
                     try:
                         i, t = parse_log_dir_for_time(log_path)
+                        times[spath][hypername].append(t)
+                        iter_cnts[spath][hypername].append(i)
                     except NoSuccessException:
                         unsuccess_cnts[spath][hypername] += 1
-                    times[spath][hypername].append(t)
-                    iter_cnts[spath][hypername].append(i)
 
                 # Checkpoint the times after each benchmark
                 if args.outdir:
