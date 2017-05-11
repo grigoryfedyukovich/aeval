@@ -3,15 +3,18 @@ from __future__ import print_function
 import os
 import re
 import sys
+import glob
 import json
 import time
 import argparse
 import subprocess32
+import traceback
 from collections import defaultdict
 
 
 TEN_MINS = 10*60  # in seconds
 TOTAL_TIME_RE = re.compile(r'\s*[tT]otal [tT]ime:?\s+([\.0-9]*)\s*')
+BOOGIE_RESULTS_RE = re.compile(r'\s*Boogie program verifier finished with [^0]\d* verified, 0 errors.*')
 
 
 # TODO: Should actually check for explicit success, not just total time report
@@ -26,22 +29,40 @@ def getenv_or_raise(v):
     return r
 
 
-# TODO: Note that /printAssignment and /trace option is for interactive runs and might cause a significant slowdown.
+def hacky_path_translate(orig):
+    assert orig[:2] == '/c'
+    return "C:" + orig[2:].replace("/", '\\')
+
+
 def run_ice(example_path, verbose=False, timeout=None):
     """Returns ICE Boogie.exe on `example_path`. Returns runtime on success."""
     assert os.path.isfile(example_path)
     root = getenv_or_raise("ICE_ROOT")
-    cmd = os.path.join(root, "Boogie", "Binaries-Full", "Boogie.exe")
+    cmd = os.path.join(root, "Boogie", "Binaries", "Boogie.exe")
     assert os.path.isfile(cmd)
-    output = subprocess32.check_output([cmd, "/nologo", "/noinfer",
-                                        "/contractInfer", "/ice",
-                                        "/printAssignment", example_path],
-                                       timeout=timeout)
-    for line in output.splitlines()[-10:]:
-        m = TOTAL_TIME_RE.match(line)
-        if m:
-            return float(m.group(1))
-    raise NoSuccessException("couldn't find 'Total time'")
+
+    for cachepath in glob.glob(example_path + ".*"):
+        os.remove(cachepath)
+
+    output = subprocess32.check_output([cmd, "-nologo", "-noinfer",
+                                        "-contractInfer", "-mlHoudini:dt_penalty",
+                                        "-printAssignment", hacky_path_translate(example_path)],
+                                       timeout=timeout, cwd=os.path.join(root, "Boogie", "Binaries"))
+    success, t = False, 0
+    for line in output.splitlines()[-40:]:
+        if verbose:
+            print(line)
+        tm = TOTAL_TIME_RE.match(line)
+        if tm:
+            t = float(tm.group(1))
+        sm = BOOGIE_RESULTS_RE.match(line)
+        if sm:
+            success = True
+    if success:
+        if t == 0:
+            raise NoSuccessException("couldn't find time")
+        return t
+    raise NoSuccessException("couldn't find '0 errors'")
 
 
 def ice_benchmarks():
@@ -62,7 +83,7 @@ def run_mcmc(example_dirpath, verbose=False, timeout=None):
     assert os.path.isfile(cmd)
     output = subprocess32.check_output([cmd], cwd=example_dirpath,
                                        timeout=timeout)
-    for line in output.splitlines()[-10:]:
+    for line in output.splitlines()[-20:]:
         if verbose:
             print(" ---", line)
         m = TOTAL_TIME_RE.match(line)
@@ -199,14 +220,20 @@ def main():
             others.append(("Z3", run_z3, args.z3, b))
         for n, fn, cnt, benches in others:
             for b in benches:
-                if name_only(b) in args.exclude:
+                if args.exclude and name_only(b) in args.exclude:
                     continue
                 t_list = times[n][name_only(b)]
                 try:
                     while len(t_list) < cnt:
                         if args.verbose:
                             print("Running %s on %s" % (n, name_only(b)))
-                        t_list.append(fn(b, verbose=args.verbose, timeout=TEN_MINS))
+                        try:
+                            fn_result = fn(b, verbose=args.verbose, timeout=TEN_MINS)
+                        except subprocess32.CalledProcessError:
+                            traceback.print_exc()
+                            break
+                        else:
+                            t_list.append(fn_result)
                 except subprocess32.TimeoutExpired:
                     if args.verbose:
                         print("Timeout expired")
