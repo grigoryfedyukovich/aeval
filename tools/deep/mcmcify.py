@@ -21,7 +21,9 @@ TOK_MAP = {
     '<=': 'LE',
     '<': 'LT',
     '+': 'PLUS',
-    '-': 'MINUS'
+    '-': 'MINUS',
+    '*': 'MUL',
+    'mod': 'MOD'
 }
 
 
@@ -245,6 +247,7 @@ def translate(chctask, xmlfo, configfo):
     #       http://theory.stanford.edu/~aiken/publications/papers/cav14.pdf
     all_ints = set(int(x.text) for x in outtree.iter('INT'))
     all_ints = all_ints.union(set(-x for x in all_ints))
+    all_ints = all_ints.union(set([-1, 0, 1]))
     print("DISJUNCTS", file=configfo)
     print("10", file=configfo)
     print("CONJUNCTS", file=configfo)
