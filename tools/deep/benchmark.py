@@ -37,7 +37,7 @@ def run_deephorn(example_path, proc_cnt, aggprune, logs_dir_path):
             aggprune_arg, example_path],
         env={"TMPDIR": "/tmp", "PATH": os.getenv("PATH")})
     try:
-        retcode = proc.wait(timeout=60*7)
+        retcode = proc.wait(timeout=60*10)
     except subprocess32.TimeoutExpired:
         proc.kill()
         raise
@@ -121,7 +121,8 @@ def main():
                     try:
                         run_deephorn(spath, pcnt, aggprune, log_path)
                     except subprocess32.TimeoutExpired:
-                        print("Timeout expired", file=sys.stderr)
+                        print("Timeout expired; marking as fail", file=sys.stderr)
+                        unsuccess_cnts[spath][hypername] += 1
                         continue
                     except subprocess32.CalledProcessError:
                         traceback.print_exc()
