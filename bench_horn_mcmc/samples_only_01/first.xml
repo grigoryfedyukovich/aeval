@@ -1,0 +1,82 @@
+<?xml version="1.0" ?>
+<VC>
+  <FUNDECLS>
+    <FUNDECL>
+      <ARITY>2</ARITY>
+      <NAME>itp</NAME>
+    </FUNDECL>
+  </FUNDECLS>
+  <VARDECLS>
+    <VAR>m</VAR>
+    <VAR>m1</VAR>
+    <VAR>i</VAR>
+    <VAR>i1</VAR>
+    <VAR>b</VAR>
+  </VARDECLS>
+  <ASSERT type="good 0">
+    <VARDECLS>
+      <VAR>m</VAR>
+      <VAR>i</VAR>
+    </VARDECLS>
+    <OR>
+      <NOT>
+        <EQ>
+          <VAR>m</VAR>
+          <INT>0</INT>
+        </EQ>
+      </NOT>
+      <NOT>
+        <EQ>
+          <VAR>i</VAR>
+          <INT>0</INT>
+        </EQ>
+      </NOT>
+    </OR>
+  </ASSERT>
+  <ASSERT type="0 0">
+    <BEFORE>
+      <VAR>m</VAR>
+      <VAR>i</VAR>
+    </BEFORE>
+    <AFTER>
+      <VAR>m1</VAR>
+      <VAR>i1</VAR>
+    </AFTER>
+    <OR>
+      <NOT>
+        <EQ>
+          <VAR>i1</VAR>
+          <PLUS>
+            <VAR>i</VAR>
+            <INT>55</INT>
+          </PLUS>
+        </EQ>
+      </NOT>
+      <NOT>
+        <EQ>
+          <VAR>m1</VAR>
+          <PLUS>
+            <VAR>m</VAR>
+            <INT>66</INT>
+          </PLUS>
+        </EQ>
+      </NOT>
+    </OR>
+  </ASSERT>
+  <ASSERT type="bad 0">
+    <VARDECLS>
+      <VAR>m</VAR>
+      <VAR>i</VAR>
+    </VARDECLS>
+    <OR>
+      <GE>
+        <PLUS>
+          <VAR>m</VAR>
+          <VAR>i</VAR>
+        </PLUS>
+        <INT>0</INT>
+      </GE>
+    </OR>
+  </ASSERT>
+</VC>
+

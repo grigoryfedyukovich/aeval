@@ -1,0 +1,78 @@
+<?xml version="1.0" ?>
+<VC>
+  <FUNDECLS>
+    <FUNDECL>
+      <ARITY>2</ARITY>
+      <NAME>inv</NAME>
+    </FUNDECL>
+  </FUNDECLS>
+  <VARDECLS>
+    <VAR>x</VAR>
+    <VAR>x1</VAR>
+    <VAR>i</VAR>
+    <VAR>i1</VAR>
+  </VARDECLS>
+  <ASSERT type="good 0">
+    <VARDECLS>
+      <VAR>x</VAR>
+      <VAR>i</VAR>
+    </VARDECLS>
+    <OR>
+      <NOT>
+        <EQ>
+          <VAR>x</VAR>
+          <INT>32</INT>
+        </EQ>
+      </NOT>
+      <NOT>
+        <EQ>
+          <VAR>i</VAR>
+          <INT>25</INT>
+        </EQ>
+      </NOT>
+    </OR>
+  </ASSERT>
+  <ASSERT type="0 0">
+    <BEFORE>
+      <VAR>x</VAR>
+      <VAR>i</VAR>
+    </BEFORE>
+    <AFTER>
+      <VAR>x1</VAR>
+      <VAR>i1</VAR>
+    </AFTER>
+    <OR>
+      <NOT>
+        <EQ>
+          <VAR>i1</VAR>
+          <PLUS>
+            <VAR>i</VAR>
+            <INT>112</INT>
+          </PLUS>
+        </EQ>
+      </NOT>
+      <NOT>
+        <EQ>
+          <VAR>x1</VAR>
+          <PLUS>
+            <VAR>x</VAR>
+            <VAR>i1</VAR>
+          </PLUS>
+        </EQ>
+      </NOT>
+    </OR>
+  </ASSERT>
+  <ASSERT type="bad 0">
+    <VARDECLS>
+      <VAR>x</VAR>
+      <VAR>i</VAR>
+    </VARDECLS>
+    <OR>
+      <GE>
+        <VAR>x</VAR>
+        <INT>0</INT>
+      </GE>
+    </OR>
+  </ASSERT>
+</VC>
+
