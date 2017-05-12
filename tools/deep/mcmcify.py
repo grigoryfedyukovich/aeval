@@ -191,7 +191,7 @@ def translate(chctask, xmlfo, configfo):
     # Guess invariant name
     # TODO: Should be only one rel with any params
     inv_name = None
-    for c in ['itp', 'inv']:
+    for c in ['itp', 'inv', 'itp1']:
         if deephas(chctask.rels, c):
             inv_name = c
     assert inv_name
