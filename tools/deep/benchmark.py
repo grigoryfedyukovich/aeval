@@ -89,6 +89,7 @@ def main():
                         help="path to directory to save times and/or histograms")
     parser.add_argument("--logdir", type=str,
                         help="path to directory to save logs")
+    parser.add_argument("--hyper", type=str)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -114,6 +115,8 @@ def main():
         for iter_ in xrange(args.iters):
             for spath in args.SMTPATHS:
                 for (pcnt, aggprune), hypername in izip(hyperps(), hyperp_names()):
+                    if args.hyper and args.hyper != hypername:
+                        continue
                     log_path = os.path.join(tmp_dir, name_only(spath), hypername, str(iter_))
                     if args.verbose:
                         print("logs:", spath, "=", log_path)
