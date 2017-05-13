@@ -85,6 +85,8 @@ namespace ufo
       function<void(unsigned, LAdisj&)> gotFailure)
     {
       map<int, int> localNum = incomNum; // for local status
+      map<int, bool> candsFailed;        // -||-
+      int candsTried = invNumber();        // -||-
 
       for (auto &hr: ruleManager.chcs)
       {
@@ -92,30 +94,32 @@ namespace ufo
 
         m_smt_solver.reset();
 
+        int ind1;  // to be identified later
+        int ind2 = getVarIndex(hr.dstRelation, decls);
+
+        if (candsFailed[ind2]) continue;  // exit if cand2 is already a failure
+
         // pushing body
         m_smt_solver.assertExpr (hr.body);
 
         Expr cand1;
         Expr cand2;
-        Expr invApp1;
-        Expr invApp2;
         Expr lmApp;
 
         // pushing src relation
         if (!isOpX<TRUE>(hr.srcRelation))
         {
-          int ind1 = getVarIndex(hr.srcRelation, decls);
+          ind1 = getVarIndex(hr.srcRelation, decls);
           LAfactory& lf1 = lfs[ind1];
 
           if (localNum[ind1] > 0)
           {
             cand1 = curCandidates[ind1];
-            invApp1 = cand1;
             for (int i = 0; i < hr.srcVars.size(); i++)
             {
-              invApp1 = replaceAll(invApp1, lf1.getVarE(i), hr.srcVars[i]);
+              cand1 = replaceAll(cand1, lf1.getVarE(i), hr.srcVars[i]);
             }
-            m_smt_solver.assertExpr(invApp1);
+            m_smt_solver.assertExpr(cand1);
           }
 
           lmApp = conjoin(lf1.learntExprs, m_efac);
@@ -127,17 +131,15 @@ namespace ufo
         }
 
         // pushing dst relation
-        int ind2 = getVarIndex(hr.dstRelation, decls);
         cand2 = curCandidates[ind2];
-        invApp2 = cand2;
         LAfactory& lf2 = lfs[ind2];
 
         for (int i = 0; i < hr.dstVars.size(); i++)
         {
-          invApp2 = replaceAll(invApp2, lf2.getVarE(i), hr.dstVars[i]);
+          cand2 = replaceAll(cand2, lf2.getVarE(i), hr.dstVars[i]);
         }
 
-        auto neggedInvApp2 = mk<NEG>(invApp2);
+        auto neggedInvApp2 = mk<NEG>(cand2);
         m_smt_solver.assertExpr(neggedInvApp2);
 
         numOfSMTChecks++;
@@ -148,7 +150,9 @@ namespace ufo
           LAdisj& failedDisj = lf2.samples.back();
           if (aggressivepruning) lf2.assignPrioritiesForFailed(failedDisj);
           gotFailure(ind2, failedDisj);
-          return false;
+          candsTried--;
+          candsFailed[ind2] = true;
+          if (candsTried == 0) return false;
         }
         else        // UNSAT == candadate is OK for now; keep checking
         {
@@ -160,6 +164,7 @@ namespace ufo
             lf2.assignPrioritiesForLearnt(learntDisj);
             lf2.learntExprs.insert(curCandidates[ind2]);
             lf2.learntLemmas.push_back(lf2.samples.size() - 1);
+            candsTried--;
             learnedLemma(ind2, learntDisj);
           }
         }
@@ -238,7 +243,7 @@ namespace ufo
       for (auto &hr : ruleManager.chcs)
       {
         if (hr.dstRelation != decls.back() && hr.srcRelation != decls.back()) continue;
-        
+
         css.push_back(CodeSampler(hr, invDecl, lf.getVars(), lf.nonlinVars));
         css.back().analyzeCode(densecode, shrink);
 

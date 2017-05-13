@@ -13,6 +13,7 @@
 /llvm-seahorn/
 /seahorn-llvm/
 /gtags.files
+.z3-trace
 
 # ctags
 .tags
