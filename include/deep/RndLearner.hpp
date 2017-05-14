@@ -180,8 +180,9 @@ namespace ufo
 
         int ind = getVarIndex(hr.srcRelation, decls);
         Expr invApp = curCandidates[ind];
-        LAfactory& lf = lfs[ind];
+        if (invApp == NULL) continue;
 
+        LAfactory& lf = lfs[ind];
         for (int i = 0; i < hr.srcVars.size(); i++)
         {
           invApp = replaceAll(invApp, lf.getVarE(i), hr.srcVars[i]);
