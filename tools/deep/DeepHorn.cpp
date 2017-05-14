@@ -3,6 +3,8 @@
 #include <boost/serialization/vector.hpp>
 #include "deep/RndLearner.hpp"
 #include "deep/Distributed.hpp"
+#include <chrono>
+#include <thread>
 
 using namespace ufo;
 using namespace std;
@@ -33,7 +35,7 @@ int main (int argc, char **argv)
 
   // A silly way to keep workers out of sync
   // TODO: Just wait for previous in chain
-  sleep(world.rank());
+  std::this_thread::sleep_for(std::chrono::milliseconds(250 * world.rank()));
 
   // Callbacks for `learnInvariants`
   const auto shouldStop = [&world]() -> bool {
