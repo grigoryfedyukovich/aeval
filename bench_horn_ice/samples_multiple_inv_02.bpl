@@ -168,9 +168,9 @@ $cc0:
   goto $cc1, $bb1;
 $cc1:
   $p := $add($p, 2);
+  assert $p >= 30;
   goto $cc0;
 $bb3:
-  assert $p >= 30;
   return;
 }
 

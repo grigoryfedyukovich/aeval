@@ -3,7 +3,6 @@ procedure boogie_si_record_int(i: int);
 
 function {:existential true} b0(i:int): bool;
 function {:existential true} c0(i:int): bool;
-function {:existential true} d0(i:int): bool;
 
 // Integer arithmetic
 function $add(p1:int, p2:int) returns (int) {p1 + p2}
@@ -144,6 +143,8 @@ ensures (forall x:int :: new <= x && x < new + obj_size ==> $obj(x) == new);
 ensures alloc[new];
 ensures (forall x:int :: {alloc[x]} x == new || old(alloc)[x] == alloc[x]);
 
+// SMACK-PRELUDE-END
+// BEGIN SMACK-GENERATED CODE
 const unique main: int;
 axiom (main == -1024);
 const unique __VERIFIER_assert: int;
@@ -154,31 +155,26 @@ procedure main()
 {
   var $p: int;
 $bb0:
-  assume $p > 50;
+  $p := 0;
   goto $bb1;
 $bb1:
   assert b0($p);
   goto $bb1a, $bb3;
 $bb1a:
-  $p := $add($p, 1);
   goto $cc0;
 $cc0:
   assert c0($p);
   goto $cc1, $bb1;
 $cc1:
-  $p := $add($p, 2);
-  goto $dd0;
-$dd0:
-  assert d0($p);
-  goto $dd1, $cc0;
-$dd1:
-  $p := $add($p, 3);
-  assert $p >= 30;
-  goto $dd0;
+  $p := $add($p, 1);
+  goto $cc0;
 $bb3:
+  assert $p >= 0;
   return;
 }
 
 procedure __VERIFIER_assert#1(p0: int)
   returns ($r: int) ;
   modifies alloc, $CurrAddr;
+
+// END SMACK-GENERATED CODE
