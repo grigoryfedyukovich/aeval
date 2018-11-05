@@ -7,6 +7,8 @@
 #include "DataLearner.hpp"
 #endif
 
+//#define SP 1
+
 using namespace std;
 using namespace boost;
 namespace ufo
@@ -25,6 +27,9 @@ namespace ufo
     map<int, Expr> ssas;
     map<int, ExprSet> qvars;
     map<int, bool> iterGrows;
+    map<int, ExprSet> nonArrayLemmas;
+    map<int, ExprSet> queryArrIterRanges;
+    map<int, ExprSet> extraArrCands;
 
     public:
 
@@ -175,6 +180,44 @@ namespace ufo
       }
     }
 
+    /* add extra range which checks if index expression in selects of cnd are within array range */
+    Expr addExtraRange(int invNum, Expr cand)
+    {
+      Expr conseq = cand->last()->right();
+      ExprVector se;
+      filter (conseq, bind::IsSelect (), inserter(se, se.begin()));
+      ExprSet candIterVars;
+      ExprSet candIters;
+      for (auto & s : se) {
+	candIters.insert(s->right());
+	filter(s->right(), bind::IsConst (), inserter(candIterVars, candIterVars.begin()));
+      }
+
+      if (candIters.size() != 1 || candIterVars.size() != 1 ||
+	  (*candIters.begin() == *candIterVars.begin())) {
+	return cand;
+      }
+      
+      Expr extraRange = mk<TRUE>(m_efac);
+      for (auto & ar : queryArrIterRanges[invNum]) {
+	if (emptyIntersect(ar, candIterVars)) continue;
+	Expr tmp = replaceAll(ar, *candIterVars.begin(), *candIters.begin());
+	extraRange = mk<AND>(extraRange, tmp);
+      }	
+      Expr tmpVar = bind::intConst(mkTerm<string> ("_erange_tmp_var", m_efac));	
+      AeValSolver ae(mk<TRUE>(m_efac),
+		      mk<AND>(extraRange, mk<EQ>(tmpVar, *candIterVars.begin())),
+		      candIterVars);
+      if (ae.solve()) {
+	extraRange = ae.getValidSubset();
+      }
+      extraRange = replaceAll(extraRange, tmpVar, *candIterVars.begin());
+      extraRange = simplifyCoef(extraRange, *candIterVars.begin());
+      Expr retExpr = replaceAll(cand, cand->last()->left(), mk<AND>(cand->last()->left(), extraRange));
+      //      outs() << "returning: " << *retExpr << "\n";
+      return retExpr;
+    }
+      
     bool addCandidate(int invNum, Expr cnd)
     {
       SamplFactory& sf = sfs[invNum].back();
@@ -190,6 +233,7 @@ namespace ufo
           ExprSet newCnjs;
           Expr it = iterators[invNum];
           if (it != NULL) cnd = replaceArrRangeForIndCheck (invNum, cnd, hr->body);
+	  cnd = addExtraRange(invNum, cnd); //TODO only for loop which follows query
         }
         candidates[invNum].push_back(cnd);
         return true;
@@ -482,15 +526,28 @@ namespace ufo
         if (cand != NULL && isOpX<FORALL>(cand) && isOpX<IMPL>(cand->last()))
         {
           if (!u.isSat(cand->last()->left())) cand = NULL;
+	  //antecedent is false w.r.t other lemmas
+	  if (cand != NULL &&
+	      !u.isSat(mk<AND>(conjoin(nonArrayLemmas[invNum], m_efac), cand->last()->left()->last())))
+	    cand = NULL;
         }
         if (cand == NULL) continue;
-//        outs () << " - - - sampled cand: #" << i << ": " << *cand << "\n";
+	//        outs () << " - - - sampled cand: #" << i << ": " << *cand << "\n";
 
         if (!addCandidate(invNum, cand)) continue;
         if (checkCand(invNum))
         {
           assignPrioritiesForLearned();
           generalizeArrInvars(sf);
+#ifdef SP
+	  outs() << "lemmas.size: " << sf.learnedExprs.size() << "\n";
+	  SamplFactory& sf = sfs[invNum].back();
+	  ExprSet lms = sf.learnedExprs;
+	  outs() << "<<<<<<<<<<<<<<<<<<<< ITERATION " << i << "<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n";
+	  for (auto & lm : lms) outs() << "lemma: " << *lm << "\n";
+	  outs() << "\n\n\n";
+#endif
+
           if (checkAllLemmas())
           {
             outs () << "Success after " << (i+1) << " iterations\n";
@@ -649,6 +706,7 @@ namespace ufo
       ExprSet tmpArrSelects;
       ExprSet tmpArrCands;
       ExprSet tmpArrAccessVars;
+      ExprSet tmpArrQueryCands;
       for (auto &hr : ruleManager.chcs)
       {
         if (hr.dstRelation != invRel && hr.srcRelation != invRel) continue;
@@ -668,10 +726,12 @@ namespace ufo
         if (analizeCode && ruleManager.hasArrays)
         {
           tmpArrCands.insert(sm.arrCands.begin(), sm.arrCands.end());
+	  tmpArrQueryCands.insert(sm.arrQueryCands.begin(), sm.arrQueryCands.end());
           tmpArrSelects.insert(sm.arrSelects.begin(), sm.arrSelects.end());
           tmpArrAccessVars.insert(sm.arrAccessVars.begin(), sm.arrAccessVars.end());
           arrIterRanges[ind].insert(sm.arrIterRanges.begin(), sm.arrIterRanges.end());
-
+	  queryArrIterRanges[ind].insert(sm.arrIterRanges.begin(), sm.arrIterRanges.end());
+	  
           // extra range constraints
           if (sm.arrAccessVars.size() > 0)
           {
@@ -732,11 +792,41 @@ namespace ufo
         for (int i = 0; i < 3; i++)
           for (auto & v : sf.lf.nonlinVars)
             replCand = replaceAll(replCand, v.second, v.first);
-        if (!u.isEquiv(replCand, mk<TRUE>(m_efac)) && !u.isEquiv(replCand, mk<FALSE>(m_efac)))
+	
+      	if (u.isEquiv(replCand, mk<FALSE>(m_efac))) continue;
+	
+	else if (u.isEquiv(replCand, mk<TRUE>(m_efac))) {
+	  if (!isOpX<OR>(replCand)) continue;	  
+	  ExprSet tmpacands;
+	  for (int i = 0; i < replCand->arity(); i++) {
+	    if (!isOpX<TRUE>(replCand->arg(i))) tmpacands.insert(replCand->arg(i));
+	  }
+	  for (auto & b : tmpacands)
+	    for (auto iter : tmpArrAccessVars)
+	      extraArrCands[ind].insert(replaceAll(b, iterators[ind], iter));
+	} else {
           for (auto iter : tmpArrAccessVars)
             arrCands[ind].insert(replaceAll(replCand, iterators[ind], iter));
+	}
       }
 
+      for (auto & qcand : tmpArrQueryCands) {
+      	arrCands[ind].insert(qcand);
+      	ExprSet se;
+      	filter (qcand, bind::IsSelect (), inserter(se, se.begin()));
+      	for (auto & s : se) {
+      	  for (auto & arrsel : arrSelects[ind]) {
+      	    if (se.find(arrsel) != se.end()) continue;
+      	    Expr  qcandTmp = replaceAll(qcand, s, arrsel);
+      	    arrCands[ind].insert(qcandTmp);
+      	  }
+      	}	
+      }
+
+      #ifdef SP
+      for (auto & a : arrCands[ind]) outs() << "cand: " << *a << "\n";
+      #endif
+      
       for (auto & cand : candsFromCode)
       {
         checked.clear();
@@ -800,7 +890,12 @@ namespace ufo
 
       if (multiHoudini(ruleManager.wtoCHCs))
       {
+	for (int i = 0; i < invNumber; i++)
+	  for (auto & cand : candidates[i])
+	    nonArrayLemmas[i].insert(cand);
+	
         assignPrioritiesForLearned();
+
         if (checkAllLemmas())
         {
           outs () << "Success after bootstrapping\n";
@@ -814,6 +909,7 @@ namespace ufo
       {
         for (int i = 0; i < invNumber; i++)
         {
+	  arrCands[i].insert(extraArrCands[i].begin(), extraArrCands[i].end());
           SamplFactory& sf = sfs[i].back();
           for (auto & c : arrCands[i])
           {
