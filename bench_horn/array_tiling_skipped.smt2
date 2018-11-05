@@ -26,7 +26,7 @@
 (rule (=> (and
            (inv a i S)
            (not (<= i (* S 1)))
-           (< 0 i1)
+           (<= 0 i1)
            (< i1 (* S 2))
            (not (<= (select a i1) i1)))
           fail))

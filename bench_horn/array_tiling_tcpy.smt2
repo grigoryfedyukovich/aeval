@@ -11,17 +11,18 @@
 (declare-rel inv ((Array Int Int) (Array Int Int) Int Int))
 (declare-rel fail ())
 
-(rule (=> (> S 1) (inv a acopy 0 S)))
+(rule (=> (and (<= 1 S) (= i 0)) (inv a acopy i S)))
 
 (rule (=> (and
            (inv a acopy i S)
-           (< i S)
-           (= (store acopy (- (* 2 S) (+ i 1)) (select a (- (* 2 S) (+ i 1)))) acopy1)
-           (= (store acopy1 i (select a i)) acopy2)
-           (= i1 (+ i 1)))
+           (< i (* 1 S))
+           (= acopy1 (store acopy (- (* 2 S) (+ i 1)) (select a (- (* 2 S) (+ i 1)))))
+           (= acopy2 (store acopy1 i (select a i)))
+	   (= i1 (+ 1 i)))
           (inv a acopy2 i1 S)))
 
-(rule (=> (and (inv a acopy i S) (not (< i S)) (<= 0 i1) (< i1 (* 2 S))
-               (not (= (select acopy i1) (select a i1)))) fail))
+(rule (=> (and (inv a acopy i S) (not (< i (* 1 S))) (<= 0 i1) (< i1 (* 2 S))
+               (not (= (select a i1) (select acopy i1)))) fail))
 
-(query fail)
+(query fail:print-certificate true)
+
