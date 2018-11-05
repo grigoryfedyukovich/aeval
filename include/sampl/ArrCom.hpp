@@ -43,6 +43,8 @@ namespace ufo
           getLinCombConsts(a, arrConsts);
         }
       }
+      arrConsts.insert(1);
+      arrConsts.insert(-1);
       for (auto & a : intVars) lf.addVar(a);
       for (auto & a : arrConsts) lf.addConst(a);
       for (auto & a : arrCoefs) lf.addIntCoef(a);
@@ -68,7 +70,10 @@ namespace ufo
     void initialize(ExprVector& intVars, ExprSet& arrCands, ExprSet& arrSelects, ExprSet& arrRange)
     {
       ExprSet it_vars;
-      for (auto & a : arrSelects) filter (a->right(), bind::IsConst(), std::inserter (it_vars, it_vars.begin ()));
+      for (auto & a : arrSelects) {
+      postFac.addVar(a);
+      filter (a->right(), bind::IsConst(), std::inserter (it_vars, it_vars.begin ()));
+      }
       for (auto & it : it_vars)
       {
         if (bind::isIntConst(it))
@@ -100,7 +105,7 @@ namespace ufo
       //       2) pruning based on dependencies of expr1 and expr2,
       //       3) conjunctive and disjunctive expr1 and expr2
       int arity = chooseByWeight(postOrAritiesDensity);
-      if (preFac.guessTerm(expr1, 1) && postFac.guessTerm(expr2, arity))
+      if (preFac.guessTerm(expr1, 1) && postFac.guessTerm(expr2, arity == 0 ? 1 : arity))
       {
         ExprVector args = forall_args;
         args.push_back(mk<IMPL>(mk<AND>(pre, preFac.toExpr(expr1)), postFac.toExpr(expr2)));

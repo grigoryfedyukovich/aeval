@@ -18,6 +18,7 @@ namespace ufo
     ExprSet arrSelects;
     ExprSet arrIterRanges;
     ExprSet arrAccessVars;
+    ExprSet arrQueryCands;
 
     ExprSet candidates;
     set<int> intConsts;
@@ -30,8 +31,10 @@ namespace ufo
 
     ExprFactory &m_efac;
 
+    bool isQuery;
+
     SeedMiner(HornRuleExt& r, Expr& d, map<int, Expr>& v, ExprMap& e) :
-      hr(r), invRel(d), invVars(v), extraVars(e), m_efac(d->getFactory()) {};
+      hr(r), invRel(d), invVars(v), extraVars(e), m_efac(d->getFactory()) {isQuery = false;};
 
     void getArrRange (Expr tmpl)
     {
@@ -137,7 +140,9 @@ namespace ufo
         }
       }
 
-      arrCands.insert(disjoin(newDsjs, m_efac));
+      Expr disjoinCand = disjoin(newDsjs, m_efac);
+      if (isQuery) arrQueryCands.insert(disjoinCand);
+      arrCands.insert(disjoinCand);
     }
 
     void addSeedHlp(Expr tmpl, ExprVector& vars, ExprSet& actualVars)
@@ -363,9 +368,11 @@ namespace ufo
       // for the query: add a negation of the entire non-recursive part:
       if (hr.isQuery)
       {
+	isQuery = true;
         Expr massaged = mkNeg(propagateEqualities(body));
         coreProcess(massaged);
         getArrRange(massaged);
+	isQuery = false;
       }
       else if (hr.isFact)
       {
