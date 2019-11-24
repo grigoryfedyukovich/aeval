@@ -42,4 +42,4 @@
       (= ys nil)
       (distinct xs nil)
       (= xs1 nil)
-      (= xs  (cons out (reverse ys1))))))
+      (= xs  (reverse (cons out ys1))))))
