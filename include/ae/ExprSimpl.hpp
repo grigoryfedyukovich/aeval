@@ -466,15 +466,7 @@ namespace ufo
     // third, combine results;
     
     if (lhs != 0){
-      Expr rhsPlus;
-      if (rhs.size() > 1){
-        rhsPlus = exprDistributor(mknary<PLUS>(rhs));
-      } else if (rhs.size() == 1) {
-        rhsPlus = *rhs.begin();
-      } else if (rhs.size() == 0) {
-        rhsPlus = mkTerm (mpz_class (0), e->getFactory());
-      }
-      return mk<T>(lhs,rhsPlus);
+      return mk<T>(lhs, mkplus(rhs, var->getFactory()));
     }
     return e;
   }
@@ -1484,6 +1476,59 @@ namespace ufo
   {
     RW<NormalizeArithmExpr> rw(new NormalizeArithmExpr(exp->getFactory()));
     return dagVisit (rw, exp);
+  }
+
+  Expr normalizeImplHlp (Expr e, ExprSet& lhs)
+  {
+    if (isOpX<IMPL>(e))
+    {
+      lhs.insert(e->left());
+      return normalizeImplHlp(e->right(), lhs);
+    }
+    return e;
+  }
+
+  Expr normalizeImpl (Expr e)
+  {
+    ExprSet lhs;
+    Expr rhs = normalizeImplHlp(e, lhs);
+    if (lhs.empty()) return e;
+    return (mk<IMPL>(conjoin(lhs, e->getFactory()), rhs));
+  }
+
+  Expr createQuantifiedFormula(Expr def, ExprVector& toAvoid)
+  {
+    ExprSet vars;
+    ExprVector args;
+    filter(def, bind::IsConst (), inserter(vars, vars.begin()));
+    for (auto & a : vars)
+      if (find(toAvoid.begin(), toAvoid.end(), a->left()) == toAvoid.end()) args.push_back(a->last());
+    args.push_back(def);
+    return mknary<FORALL>(args);
+  }
+
+  Expr swapPlusMinusConst(Expr e)
+  {
+    ExprVector ops;
+    ExprVector newOps;
+    getAddTerm(e, ops);
+    for (auto & a : ops)
+    {
+      if (isOpX<MPZ>(a)) newOps.push_back(additiveInverse(a));
+      else newOps.push_back(a);
+    }
+    return mkplus(newOps, e->getFactory());
+  }
+
+  bool isConstPos(Expr e)
+  {
+    ExprVector ops;
+    getAddTerm(e, ops);
+    int i = 0;
+    for (auto & a : ops)
+      if (isOpX<MPZ>(a)) i += lexical_cast<int>(a);
+
+    return i>0;
   }
 }
 

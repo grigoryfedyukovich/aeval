@@ -2,7 +2,6 @@
 
 (declare-fun in () Elem)
 (declare-fun in2 () Elem)
-(declare-fun in3 () Elem)
 (declare-fun out () Elem)
 (declare-fun out2 () Elem)
 (declare-fun n () Int)
@@ -18,14 +17,14 @@
 
 (assert
   (and
-  (= A1 (store (store (store A n in3) n in2) (+ n 1) in))
+  (= A1 (store (store A n in2) (+ n 1) in))
   (= n1 (+ n 2))))
 
 ; pop
 
 (assert
   (and
-    (> n 0)
+    (> n 1)
     (= n1 (- n 2))
     (= A1 A)
     (= out (select A (- n 1)))

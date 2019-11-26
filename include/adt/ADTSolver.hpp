@@ -28,15 +28,18 @@ namespace ufo
     vector<int> rewriteSequence;
     int maxDepth;
     int maxSameAssm;
+    bool verbose;
+
     public:
 
-    ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors, int _maxDepth, int _maxSameAssm) :
+    ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors, int _maxDepth = 5, int _maxSameAssm = 1, bool _verbose = false) :
         goal(_goal), assumptions(_assumptions), constructors(_constructors),
-        efac(_goal->getFactory()), u(_goal->getFactory()), maxDepth(_maxDepth), maxSameAssm(_maxSameAssm) {}
+        efac(_goal->getFactory()), u(_goal->getFactory()), maxDepth(_maxDepth), maxSameAssm(_maxSameAssm), verbose(_verbose) {}
 
     bool simplifyGoal()
     {
       Expr goalQF = goal->last();
+      goalQF = normalizeImpl(goalQF);
       for (auto & a : assumptions)
       {
         Expr goalSimpl = useAssumption(goalQF, a);
@@ -61,8 +64,13 @@ namespace ufo
       return false;
     }
 
-    void mergeAssumptions(int bnd = 6)
+    void mergeAssumptions(int bnd = 1)
     {
+      // simplify them first
+      for (auto & a : assumptions) // TODO: add mores simplifications
+        if (isOpX<FORALL>(a))
+          a = replaceAll(a, a->last(), normalizeImpl(a->last()));
+
       for (int i = 0; i < bnd; i++)
       {
         ExprSet newAssms;
@@ -140,7 +148,7 @@ namespace ufo
         // we first search for a matching of the entire assumption (usually some inequality)
         if (findMatchingSubexpr (assmQF, subgoal, args, matching))
         {
-          for (auto & a : matching) repl = replaceAll(repl, a.first, a.second);
+          repl = replaceAll(repl, matching);
           Expr replaced;
           if (!isImpl) replaced = replaceAll(subgoal, repl, mk<TRUE>(efac));
           else
@@ -163,7 +171,7 @@ namespace ufo
           // (we can try matching the RHS as well, but it will likely give us infinite loops)
           if (findMatchingSubexpr (assmQF->left(), subgoal, args, matching))
           {
-            for (auto & a : matching) repl = replaceAll(repl, a.first, a.second);
+            repl = replaceAll(repl, matching);
             return replaceAll(subgoal, repl->left(), repl->right());
           }
         }
@@ -224,7 +232,7 @@ namespace ufo
     {
       if (u.isEquiv(subgoal, mk<TRUE>(efac)))
       {
-//        outs () << "rewriting done\n";
+        if (verbose) outs () << "rewriting done\n";
         return true;
       }
 
@@ -255,10 +263,10 @@ namespace ufo
       // quick syntactic check first:
       for (int i = 0; i < assumptions.size(); i++)
         if (assumptions[i] == subgoal)
-      {
-//        outs () << "rewriting done\n";
-        return true;
-      }
+        {
+          if (verbose) outs () << "rewriting [" << i << "] done\n";
+          return true;
+        }
 
       // todo: more priorities
 
@@ -275,16 +283,20 @@ namespace ufo
           ExprSet subRes;
           getConj(res, subRes);
           bool done = true;
-//          int part = 1;
+          int part = 1;
+          if (subRes.empty() && verbose) outs () << "rewritten [" << i << "]: true\n";
           for (Expr r : subRes)
           {
             auto rewriteHistoryTmp = rewriteHistory;
             auto rewriteSequenceTmp = rewriteSequence;
 
-//            outs () << "rewritten ";
-//            if (subRes.size() > 1) outs () << "(part " << part << "/" << subRes.size()<< ") ";
-//            outs () << "[" << i << "]:   " << *r << "\n";
-//            part++;
+            if (verbose)
+            {
+              outs () << "rewritten ";
+              if (subRes.size() > 1) outs () << "(part " << part << "/" << subRes.size()<< ") ";
+              outs () << "[" << i << "]:   " << *r << "\n";
+              part++;
+            }
             bool res = rewriteAssumptions(r);
 
             rewriteHistory = rewriteHistoryTmp;
@@ -300,7 +312,7 @@ namespace ufo
 
           if (done)
           {
-//            outs () << "rewriting done\n";
+            if (verbose) outs () << "rewriting done\n";
             return true;
           }
 
@@ -408,6 +420,7 @@ namespace ufo
 
     void printAssumptions()
     {
+      if (!verbose) return;
       outs () << "=========================\n";
       for (int i = 0; i < assumptions.size(); i++)
       {
@@ -449,7 +462,7 @@ namespace ufo
       mergeAssumptions();
       splitAssumptions();
       printAssumptions();
-      outs() << "\nBase case:       " << *baseSubgoal << "\n";
+      if (verbose) outs() << "\nBase case:       " << *baseSubgoal << "\n";
 
       rewriteHistory.clear();
       rewriteSequence.clear();
@@ -468,12 +481,12 @@ namespace ufo
         }
         if (newArgs.size() > 0)
         {
-          outs () << "\nProceeding to nested induction\n";
+          if (verbose) outs () << "\nProceeding to nested induction\n";
           newArgs.push_back(replaceAll(goal->last(), typeDecl, baseConstructor));
           Expr newGoal = mknary<FORALL>(newArgs);
           ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxSameAssm);
           if (!sol.solve (basenums, indnums)) return false;
-          outs () << "\nReturning to the outer induction\n\n";
+          if (verbose) outs () << "\nReturning to the outer induction\n\n";
         }
         else
         {
@@ -536,7 +549,7 @@ namespace ufo
       mergeAssumptions();
       splitAssumptions();
       printAssumptions();
-      outs() << "\nInductive step:  " << * indSubgoal << "\n";
+      if (verbose) outs() << "\nInductive step:  " << * indSubgoal << "\n";
 
       rewriteHistory.clear();
       rewriteSequence.clear();
@@ -556,12 +569,12 @@ namespace ufo
 
       if (newArgs.size() > 0)
       {
-        outs () << "\nProceeding to nested induction\n";
+        if (verbose) outs () << "\nProceeding to nested induction\n";
         newArgs.push_back(replaceAll(goal->last(), bind::fapp(typeDecl), indConsApp));
         Expr newGoal = mknary<FORALL>(newArgs);
         ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxSameAssm);
         if (sol.solve (basenums, indnums)) return true;
-        outs () << "Nested induction unsuccessful\n\n";
+        if (verbose) outs () << "Nested induction unsuccessful\n\n";
       }
 
       // last resort so far
@@ -601,8 +614,8 @@ namespace ufo
           if (d != NULL)
           {
             assert(isOpX<EQ>(d));
-            outs () << "Case splitting for " << *d->left() << ":\n";
-            outs () << "  Case " << *d << "\n";
+            if (verbose) outs () << "Case splitting for " << *d->left() << ":\n";
+            if (verbose) outs () << "  Case " << *d << "\n";
             auto assumptionsTmp = assumptions;
             auto rewriteHistoryTmp = rewriteHistory;
             auto rewriteSequenceTmp = rewriteSequence;
@@ -626,11 +639,11 @@ namespace ufo
             rewriteSequence = rewriteSequenceTmp;
 
             if (!partiallyDone) continue;
-            outs() << "Successful\n\n";
+            if (verbose) outs() << "Successful\n\n";
 
             pre = mkNeg(pre);
             assert(isOpX<EQ>(pre) && pre->left() == d->left());
-            outs () << "  Case " << *pre << "\n";
+            if (verbose) outs () << "  Case " << *pre << "\n";
 
             assumptions[i] = simplifyBool(replaceAll(assumptionTmp, pre, mk<TRUE>(efac)));
 
@@ -651,7 +664,7 @@ namespace ufo
 
             if (done)
             {
-              outs() << "Successful\n\n";
+              if (verbose) outs() << "Successful\n\n";
               return true;
             }
           }
@@ -706,14 +719,36 @@ namespace ufo
       return NULL;
     }
 
-    bool solveNoind()
+    bool solveNoind(int rounds = 2)
     {
-      mergeAssumptions(2);
+      auto assumptionsTmp = assumptions;
+      mergeAssumptions(rounds);
       printAssumptions();
-      outs () <<"=====\n"<< *goal << "\n\n\n";
+      if (verbose) outs () << "=====\n" << *goal << "\n\n\n";
       bool res = rewriteAssumptions(goal);
-      outs () << " proved: " << res << "\n";
-      return true;
+      if (!res)
+      {
+        // revert and try induction:
+        assumptions = assumptionsTmp;
+        ExprSet qFreeAssms;
+        for (auto it = assumptions.begin(); it != assumptions.end(); )
+        {
+          if (!isOpX<FORALL>(*it))
+          {
+            if (isOpX<NEQ>(*it) || isOpX<FAPP>(*it)) // super big hack
+              qFreeAssms.insert(*it);
+            it = assumptions.erase(it);
+          }
+          else ++it;
+        }
+
+        if (verbose) outs () << " Proving by induction\n";
+        goal = createQuantifiedFormula(mk<IMPL>(conjoin(qFreeAssms, efac), goal), constructors);
+        vector<int> basenums, indnums; // dummies
+        res = solve(basenums, indnums);
+      }
+      if (verbose) outs () << " proved: " << res << "\n";
+      return res;
     }
 
     bool solve(vector<int>& basenums, vector<int>& indnums)
@@ -724,7 +759,7 @@ namespace ufo
       {
         if (simplifyGoal())
         {
-          outs () << "Trivially Proved\n";
+          if (verbose) outs () << "Trivially Proved\n";
           return true;
         }
       }
@@ -732,14 +767,13 @@ namespace ufo
       // simple heuristic: if the result of every rewriting made the goal larger, we rollback
       bool toRollback = true;
       for (int i = 1; i < rewriteHistory.size(); i++)
-      {
         toRollback = toRollback &&
             (treeSize(rewriteHistory[i-1]) < treeSize(rewriteHistory[i]));
-      }
 
       if (toRollback) goal = rewriteHistory[0];
 
-      outs () << "Simplified goal: " << *goal << "\n\n";
+      if (verbose) outs () << "Simplified goal: " << *goal << "\n\n";
+
       for (int i = 0; i < goal->arity() - 1; i++)
       {
         Expr type = goal->arg(i)->last();
@@ -747,12 +781,12 @@ namespace ufo
         {
           if (induction(i, basenums, indnums))
           {
-            outs () << "                 Proved\n";
+            if (verbose) outs () << "                 Proved\n";
             return true;
           }
           else
           {
-            outs () << "                 Failed\n";
+            if (verbose) outs () << "                 Failed\n";
             return false;
           }
         }
@@ -783,7 +817,7 @@ namespace ufo
     nums.push_back(atoi(substr));
   }
 
-  void adtSolve(EZ3& z3, Expr s, char* basecheck, char *indcheck, int maxDepth, int maxSameAssm)
+  void adtSolve(EZ3& z3, Expr s, char* basecheck, char *indcheck, int maxDepth, int maxSameAssm, bool verbose)
   {
     vector<int> basenums;
     vector<int> indnums;
@@ -816,7 +850,7 @@ namespace ufo
       return;
     }
 
-    ADTSolver sol (goal, assumptions, constructors, maxDepth, maxSameAssm);
+    ADTSolver sol (goal, assumptions, constructors, maxDepth, maxSameAssm, verbose);
     if (isOpX<FORALL>(goal)) sol.solve(basenums, indnums);
     else sol.solveNoind();
   }

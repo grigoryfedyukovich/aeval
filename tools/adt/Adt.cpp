@@ -37,10 +37,10 @@ int main (int argc, char ** argv)
   char *infile = getSmtFileName(1, argc, argv);
   char *basecheck = getStrValue("--base", NULL, argc, argv);
   char *indcheck = getStrValue("--ind", NULL, argc, argv);
-  int maxDepth = atoi(getStrValue("--max-depth", "10", argc, argv));
-  int maxSameAssm = atoi(getStrValue("--max-same-assm", "2", argc, argv));
+  int maxDepth = atoi(getStrValue("--max-depth", "5", argc, argv));
+  int maxSameAssm = atoi(getStrValue("--max-same-assm", "1", argc, argv));
   Expr e = z3_from_smtlib_file (z3, infile);
-  adtSolve(z3, e, basecheck, indcheck, maxDepth, maxSameAssm);
+  adtSolve(z3, e, basecheck, indcheck, maxDepth, maxSameAssm, true);
 
   return 0;
 }

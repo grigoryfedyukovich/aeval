@@ -22,7 +22,7 @@
 
 (assert
   (and
-    (> n 0)
+    (> n 1)
     (= n1 (- n 2))
     (= A1 A)
     (= out (select A (- n 1)))

@@ -4,10 +4,7 @@
 (declare-fun xs () Lst)
 (declare-fun xs1 () Lst)
 (declare-fun in () Elem)
-(declare-fun in2 () Elem)
 (declare-fun out () Elem)
-(declare-fun out2 () Elem)
-(declare-fun out3 () Elem)
 
 ; isempty
 
@@ -15,8 +12,8 @@
 
 ; push
 
-(assert (= xs1 (cons in (cons in2 xs))))
+(assert (= xs1 (cons in xs)))
 
 ; pop
 
-(assert (= xs (cons out (cons out2 (cons out3 xs1)))))
+(assert (= xs (cons out xs1)))
