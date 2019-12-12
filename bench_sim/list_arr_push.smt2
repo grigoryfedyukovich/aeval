@@ -7,6 +7,7 @@
 (declare-fun xs1 () Lst)
 (declare-fun h () Elem)
 (declare-fun n () Int)
+(declare-fun n1 () Int)
 (declare-fun A () (Array Int Elem))
 (declare-fun A1 () (Array Int Elem))
 
@@ -25,7 +26,7 @@
 (assert (forall ((xs Lst) (n Int) (A (Array Int Elem)))
     (=> (R xs n A) (>= n 0))))
 
-(assert (and (= xs1 (cons h xs)) (= A1 (store A (- n 1) h)) (R xs (- n 1) A)))
+(assert (and (= xs1 (cons h xs)) (= A1 (store A n h)) (= n1 (+ n 1)) (R xs n A)))
 
-(assert (not (R xs1 n A1)))
+(assert (not (R xs1 n1 A1)))
 (check-sat)

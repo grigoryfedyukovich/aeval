@@ -28,8 +28,10 @@
 
 (assert (forall ((xs Lst) (m Int) (n Int) (A (Array Int Elem))) (=> (R xs m n A) (<= m n))))
 
-(assert (not (forall ((xs Lst) (m Int) (n Int) (A (Array Int Elem)))
-    (=> (and (not (= xs nil)) (R (append (allbutlast xs) (cons (last xs) nil)) m n A))
-        (R (allbutlast xs) (+ m 1) n A)))))
+; extra lemma:
+(assert (forall ((xs Lst)) (=> (not (= xs nil)) (= xs (append (allbutlast xs) (cons (last xs) nil))))))
+
+; not used
+(assert (not (forall ((xs Lst) (m Int) (n Int) (A (Array Int Elem))) (=> (and (distinct xs nil) (R xs m n A)) (R (allbutlast xs) (+ m 1) n A)))))
 
 (check-sat)

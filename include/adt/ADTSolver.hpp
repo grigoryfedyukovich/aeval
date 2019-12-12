@@ -27,26 +27,27 @@ namespace ufo
     ExprVector rewriteHistory;
     vector<int> rewriteSequence;
     int maxDepth;
-    int maxSameAssm;
+    int maxGrow;
+    int mergingIts;
+    int earlySplit;
     bool verbose;
+    int sp = 2;
+    int glob_ind = 0;
+    ExprVector blockedAssms;
 
     public:
 
-    ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors, int _maxDepth = 5, int _maxSameAssm = 1, bool _verbose = false) :
+    ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors,
+              int _maxDepth = 5, int _maxGrow = 3, int _mergingIts = 3, int _earlySplit = 1, bool _verbose = false) :
         goal(_goal), assumptions(_assumptions), constructors(_constructors),
-        efac(_goal->getFactory()), u(_goal->getFactory()), maxDepth(_maxDepth), maxSameAssm(_maxSameAssm), verbose(_verbose) {}
+        efac(_goal->getFactory()), u(_goal->getFactory()), maxDepth(_maxDepth), maxGrow(_maxGrow), mergingIts(_mergingIts),
+        earlySplit(_earlySplit), verbose(_verbose) {}
 
     bool simplifyGoal()
     {
       Expr goalQF = goal->last();
-      goalQF = normalizeImpl(goalQF);
-      for (auto & a : assumptions)
-      {
-        Expr goalSimpl = useAssumption(goalQF, a);
-        if (goalSimpl != NULL) goalQF = goalSimpl;
-      }
-      goalQF = liftITEs(goalQF); // TODO: more simplification passes
-      goalQF = u.simplifyITE(goalQF);
+      goalQF = liftITEs(goalQF);
+      goalQF = u.simplifyITE(goalQF);   // TODO: more simplification passes
       if (u.isEquiv(goalQF, mk<TRUE>(efac))) return true;
 
       ExprVector args;
@@ -64,26 +65,58 @@ namespace ufo
       return false;
     }
 
-    void mergeAssumptions(int bnd = 1)
+    bool mergeAssumptions(int bnd = -1)
     {
       // simplify them first
-      for (auto & a : assumptions) // TODO: add mores simplifications
+      int sz = assumptions.size();
+      for (int i = 0; i < sz; i++) // TODO: add mores simplifications
+      {
+        Expr &a = assumptions[i];
+        a = simplifyBool(a);
         if (isOpX<FORALL>(a))
-          a = replaceAll(a, a->last(), normalizeImpl(a->last()));
+        {
+          Expr newAssm = replaceAll(a, a->last(), normalizeImpl(a->last()));
+          if (newAssm != a)
+          {
+            assumptions.push_back(newAssm);
+          }
+        }
+      }
 
+      if (bnd == -1) bnd = mergingIts; // default val
       for (int i = 0; i < bnd; i++)
       {
         ExprSet newAssms;
-        for (auto & a : assumptions)
+        for (auto a : assumptions)
         {
           // todo: figure out why there could be NULLs
           if (a == NULL) continue;
-          simplifyAssm(a, newAssms);
-          newAssms.insert(a);
+
+          if (isOpX<ITE>(a))
+          {
+            newAssms.insert(a);
+            continue; // GF: could be useful in principle
+          }
+
+          if (!isOpX<FORALL>(a) && simplifyAssm(a, newAssms))
+          {
+            return true;
+          }
+          if (isOpX<NEG>(a))
+          {
+            getConj(mkNeg(a->left()), newAssms);
+          }
+          else
+          {
+            newAssms.insert(a);
+          }
         }
         assumptions.clear();
-        for (auto & a : newAssms) assumptions.push_back(a);
+        for (auto & a : newAssms)
+          if (find (blockedAssms.begin(), blockedAssms.end(), a) == blockedAssms.end())
+            unique_push_back(a, assumptions);
       }
+      return false;
     }
 
     void splitAssumptions()
@@ -97,47 +130,52 @@ namespace ufo
       for (auto & a : newAssms) assumptions.push_back(a);
     }
 
-    void simplifyAssm(Expr assm, ExprSet& newAssms)
+    bool simplifyAssm(Expr assm, ExprSet& newAssms)
     {
-      Expr e = assm;
-      if (isOpX<FORALL>(assm)) e = assm->last();
-
       for (auto a : assumptions)
       {
         if (a == assm || a == NULL) continue;
+        if (isOpX<FORALL>(assm) && !isOpX<FORALL>(a)) continue;
 
-        Expr tmp = useAssumption(e, a, true);
-        if (tmp != NULL)
+        Expr tmp = useAssumption(assm, a, true);
+        if (tmp != NULL && !u.isTrue(tmp))
         {
+          if (u.isFalse(tmp))
+          {
+            if (verbose) outs () << string(sp, ' ')
+              << "inconsistent assumptions: " << *assm << " and " << *a << "\n";
+            return true;
+          }
+
           ExprSet tmps;
           getConj(simplifyBool(tmp), tmps);
+          getConj(simplifyBool(simplifyArr(tmp)), tmps); // duplicate for the case of arrays
           for (auto & t : tmps)
           {
-            if (find(assumptions.begin(), assumptions.end(), t) == assumptions.end() &&
-                treeSize(t) < 150 /*to make parametric*/)
+            if (find(assumptions.begin(), assumptions.end(), t) == assumptions.end())
             {
-//              outs () << "  >>>  adding new: " << *t << ": " << treeSize(t) << "\n";
               newAssms.insert(t);
             }
           }
         }
       }
+      return false;
     }
 
     // main method to do rewriting
+    // TODO: separate the logic for fwd, otherwise the code gets messy
     Expr useAssumption(Expr subgoal, Expr assm, bool fwd = false)
     {
-      subgoal = liftITEs(subgoal);
-
       if (isOpX<FORALL>(assm))
       {
         ExprMap matching;
         ExprVector args;
         for (int i = 0; i < assm->arity() - 1; i++) args.push_back(bind::fapp(assm->arg(i)));
+
         Expr assmQF = assm->last();
         Expr repl = assmQF;
 
-        bool isImpl;
+        bool isImpl = false;
         if (isOpX<IMPL>(assmQF))
         {
           if (fwd) assmQF = assmQF->left();
@@ -145,23 +183,159 @@ namespace ufo
           isImpl = true;
         }
 
+        if (isOpX<ITE>(assmQF))
+        {
+          int res = -1;
+          if (fwd)
+          {
+            if (findMatching (assmQF->left(), subgoal, args, matching))
+            {
+              res = 1;
+            }
+            else
+            {
+              matching.clear();
+              if (findMatching (mkNeg(assmQF->left()), subgoal, args, matching))
+              {
+                res = 2;
+              }
+            }
+            if (res > 0)
+            {
+              repl = replaceAll(assmQF->arg(res), matching);
+
+              // sanity removal
+              for (auto it = args.begin(); it != args.end();)
+              {
+                if (contains (repl, *it)) ++it;
+                else it = args.erase(it);
+              }
+
+              if (!args.empty())
+              {
+                repl = createQuantifiedFormulaRestr(repl, args);
+              }
+
+              return repl;
+            }
+          }
+          else
+          {
+            // !fwd
+
+            if (findMatching (assmQF->right(), subgoal, args, matching))
+            {
+              res = 1;
+            }
+            else
+            {
+              matching.clear();
+              if (findMatching (assmQF->last(), subgoal, args, matching))
+              {
+                res = 2;
+              }
+            }
+            if (res > 0)
+            {
+              if (res == 1) repl = assmQF->left();
+              else repl = mkNeg(assmQF->left());
+              repl = replaceAll(repl, matching);
+
+              ExprSet vars;
+              filter(assmQF->left(), bind::IsConst (), inserter(vars, vars.begin()));
+
+              for (auto it = args.begin(); it != args.end();)
+              {
+                if (find(vars.begin(), vars.end(), *it) != vars.end())
+                {
+                  it = args.erase(it);
+                }
+                else
+                {
+                  ++it;
+                }
+              }
+              if (!args.empty()) repl = createQuantifiedFormulaRestr(repl, args, false);
+  
+              return repl;
+            }
+          }
+        }
+
         // we first search for a matching of the entire assumption (usually some inequality)
         if (findMatchingSubexpr (assmQF, subgoal, args, matching))
         {
           repl = replaceAll(repl, matching);
           Expr replaced;
-          if (!isImpl) replaced = replaceAll(subgoal, repl, mk<TRUE>(efac));
-          else
+          if (isImpl)
           {
             if (fwd) // used in simplifyAssm
             {
-              if (u.implies(subgoal, repl->left())) replaced = repl->right();
+              if (!isOpX<FORALL>(subgoal) && u.implies(subgoal, repl->left()))
+              {
+                ExprSet vars;
+                filter (assmQF, bind::IsConst (), inserter(vars, vars.begin()));
+                for (auto it = args.begin(); it != args.end();)
+                {
+                  bool found = false;
+                  if (find(vars.begin(), vars.end(), *it) != vars.end())
+                  {
+                    found = true;
+                    it = args.erase(it);
+                  }
+                  if (!found)
+                  {
+                    ++it;
+                  }
+                }
+
+                // sanity removal
+                for (auto it = args.begin(); it != args.end();)
+                {
+                  if (contains (repl->right(), *it)) ++it;
+                  else it = args.erase(it);
+                }
+
+                if (args.empty())
+                {
+                  replaced = repl->right();
+                }
+                else
+                {
+                  replaced = createQuantifiedFormulaRestr(repl->right(), args);
+                }
+              }
             }
-            else replaced = replaceAll(subgoal, repl->right(), repl->left());
+            else
+            {
+              ExprSet vars;
+              filter(assmQF, bind::IsConst (), inserter(vars, vars.begin()));
+              replaced = replaceAll(subgoal, repl->right(), repl->left());
+
+              for (auto it = args.begin(); it != args.end();)
+              {
+                if (find(vars.begin(), vars.end(), *it) != vars.end())
+                {
+                  it = args.erase(it);
+                }
+                else
+                {
+                  ++it;
+                }
+              }
+              if (!args.empty())
+                replaced = createQuantifiedFormulaRestr(replaced, args, false);
+            }
+          }
+          else
+          {
+            replaced = replaceAll(subgoal, repl, mk<TRUE>(efac));
           }
 
           if (subgoal != replaced) return replaced;
         }
+
+        if (isImpl) return NULL;
 
         if (isOpX<EQ>(assmQF))
         {
@@ -174,7 +348,16 @@ namespace ufo
             repl = replaceAll(repl, matching);
             return replaceAll(subgoal, repl->left(), repl->right());
           }
+
+          // try vice versa (dangerous since it will introduce repeated rewriting)
+          matching.clear();
+          if (!fwd && findMatchingSubexpr (assmQF->right(), subgoal, args, matching))
+          {
+            repl = replaceAll(repl, matching);
+            return replaceAll(subgoal, repl->right(), repl->left());
+          }
         }
+
         if ((isOpX<LEQ>(assmQF) && isOpX<LEQ>(subgoal)) ||
             (isOpX<GEQ>(assmQF) && isOpX<GEQ>(subgoal)) ||
             (isOpX<LT>(assmQF) && isOpX<LT>(subgoal)) ||
@@ -186,13 +369,54 @@ namespace ufo
             if (u.implies(repl, subgoal)) return mk<TRUE>(efac);
           }
         }
+
+        if (isOpX<ITE>(subgoal))
+        {
+          if (findMatchingSubexpr (assmQF, subgoal->left(), args, matching))
+          {
+            for (auto & a : matching) repl = replaceAll(repl, a.first, a.second);
+            if (u.implies(repl, subgoal->left())) return subgoal->right();
+            if (u.implies(repl, mkNeg(subgoal->left()))) return subgoal->last();
+          }
+        }
+
+        // try finding inconsistencies
+        if (fwd)
+        {
+          ExprMap matching1;
+          ExprVector args1;
+          filter(subgoal, bind::IsConst (), inserter(args1, args1.begin()));
+          if (findMatchingSubexpr (subgoal, assmQF, args1, matching1))
+          {
+            repl = assmQF;
+            for (auto & m : matching1){
+              auto it = find(args.begin(), args.end(), m.second);
+              if (it != args.end())
+              {
+                repl = replaceAll(repl, m.second, m.first);
+                args.erase(it);
+              }
+              else
+              {
+                if (m.second != m.first) return NULL;
+              }
+            }
+            if (args.empty())
+            {
+              if (!u.isSat(subgoal, repl)) return mk<FALSE>(efac);
+              return repl;
+            }
+          }
+        }
       }
       else
       {
         // for a quantifier-free assumption (e.g., inductive hypotheses),
         // we create an SMT query and check with Z3
         // TODO: we can do so for ALL constistent quantifier-free assumptions at once
-        if (u.implies(assm, subgoal)) return mk<TRUE>(efac);
+        if (!fwd && u.implies(assm, subgoal)) return mk<TRUE>(efac);
+        if (fwd && !u.isSat(assm, subgoal)) return mk<FALSE>(efac);
+
         if (isOpX<EQ>(assm))
         {
           Expr res = replaceAll(subgoal, assm->left(), assm->right());
@@ -205,6 +429,87 @@ namespace ufo
         if (isOpX<IMPL>(subgoal) && u.implies(subgoal->left(), assm))
         {
           return subgoal->right();
+        }
+        if (isOpX<ITE>(subgoal))
+        {
+          if (u.implies(assm, subgoal->left()))
+          {
+            return subgoal->right();
+          }
+          if (u.implies(assm, mk<NEG>(subgoal->left())))
+          {
+            return subgoal->last();
+          }
+        }
+
+        if (isOpX<OR>(assm) && fwd)
+        {
+          ExprSet dsjs;
+          getDisj(assm, dsjs);
+          bool rem = false;
+          for (auto it = dsjs.begin(); it != dsjs.end();)
+          {
+            if (!u.isSat(*it, subgoal))
+            {
+              rem = true;
+              it = dsjs.erase(it);
+            }
+            else ++it;
+          }
+          if (rem)
+          {
+            Expr res = disjoin(dsjs, efac);
+            return res;
+          }
+        }
+
+        ExprSet stores;
+        getStores(subgoal, stores);
+
+        if (stores.size() > 0)
+        {
+          if (isOpX<NEQ>(assm) && contains(subgoal, assm->left()) && contains(subgoal, assm->right()))
+          {
+            ExprMap substs;
+            substs[assm->right()] = assm->left();
+            substs[assm->left()] = assm->right();
+            for (auto & a : stores)
+            {
+              if (isOpX<STORE>(a->left()) &&
+                  ((a->right() == assm->right() && a->left()->right() == assm->left()) ||
+                   (a->right() == assm->left() && a->left()->right() == assm->right())))
+              {
+                return replaceAll(subgoal, a, replaceAll(a, substs));
+              }
+            }
+          }
+
+          if (isOpX<SELECT>(assm))
+          {
+
+            for (auto & a : stores)
+            {
+              if (assm->left() == a->left() &&
+                  assm->right() == a->right() &&
+                  isOpX<TRUE>(a->last()))
+              {
+                return replaceAll(subgoal, a, a->left());
+              }
+            }
+          }
+
+          if (isOpX<NEG>(assm) && isOpX<SELECT>(assm->left()))
+          {
+            for (auto & a : stores)
+            {
+              if (assm->left()->left() == a->left() &&
+                  assm->left()->right() == a->right() &&
+                  isOpX<FALSE>(a->last()))
+              {
+                return replaceAll(subgoal, a, a->left());
+              }
+            }
+          }
         }
       }
       // if nothing helped, return NULL -- it will be used for backtracking
@@ -221,10 +526,16 @@ namespace ufo
         subgoal_copy = useAssumption(subgoal_copy, assumptions[i]);
         if (subgoal_copy == NULL || subgoal_copy == subgoal) break;
 
-//        outs () << "rewritten [" << i << "]:   " << *subgoal_copy << "\n";
         if (u.isEquiv(subgoal_copy, mk<TRUE>(efac))) return true;
       }
       return false;
+    }
+
+    bool handleExists(Expr subgoal)
+    {
+      if (verbose) outs () << string(sp, ' ')  << "existential quantifies are currently not supported\n";
+      return false;
+      // to be done
     }
 
     // this recursive method performs a naive search for a strategy
@@ -232,43 +543,129 @@ namespace ufo
     {
       if (u.isEquiv(subgoal, mk<TRUE>(efac)))
       {
-        if (verbose) outs () << "rewriting done\n";
+        if (verbose) outs () << string(sp, ' ') << "rewriting done\n";
         return true;
       }
 
       // check recursion depth
       if (rewriteSequence.size() >= maxDepth)
       {
-//        outs() << "Maximum recursion depth reached\n";
+        if (verbose) outs() << string(sp, ' ') << "Maximum recursion depth reached\n";
         return false;
       }
 
       // check consecutive applications of the same assumption
-      if (rewriteSequence.size() >= maxSameAssm)
+      if (rewriteSequence.size() > maxGrow)
       {
-        int assmId = rewriteSequence.back();
-        int offset = rewriteSequence.size() - maxSameAssm - 1;
-        int i = 0;
-        for (; i < maxSameAssm; i++)
-          if (rewriteSequence[i + offset] != assmId)
-            break;
-
-        if (i == maxSameAssm)
+        bool incr = true;
+        for (int i = 1; i < maxGrow + 1; i++)
         {
-//          outs() << "Maximum use of assumption #" << assmId << " reached\n";
+          if (treeSize(rewriteHistory[rewriteHistory.size() - i]) < treeSize(rewriteHistory[rewriteHistory.size() - i - 1]))
+          {
+            incr = false;
+            break;
+          }
+        }
+
+        if (incr)
+        {
+          if (verbose) outs() << string(sp, ' ') << "sequence of rewrites only grows\n";
           return false;
         }
       }
 
+      auto assumptionsTmp = assumptions;
+      bool toRem = false;
+      if (isOpX<IMPL>(subgoal))
+      {
+        uniquePushConj(subgoal->left(), assumptions);
+        if (assumptions.size() != assumptionsTmp.size())
+        {
+          toRem = true;
+          if (mergeAssumptions())
+          {
+            assumptions = assumptionsTmp;
+            return true;
+          }
+          printAssumptions();
+        }
+        subgoal = subgoal->right();
+        if (verbose) outs() << string(sp, ' ') << "current subgoal: " << *subgoal << "\n";
+      }
+
+      if (isOpX<EXISTS>(subgoal))
+      {
+        return handleExists(subgoal);
+      }
+
+      subgoal = liftITEs(subgoal);
+      subgoal = u.simplifyITE(subgoal);
+      subgoal = simplifyExists(subgoal);
+      subgoal = simplifyArr(subgoal);
+      subgoal = simplifyArithm(subgoal);
+      subgoal = simplifyBool(subgoal);
+
+      ExprSet subSub;
+      if (isOpX<ITE>(subgoal))
+      {
+        subSub.insert(mk<IMPL>(subgoal->left(), subgoal->right()));
+        subSub.insert(mk<IMPL>(mkNeg(subgoal->left()), subgoal->last()));
+      }
+      else
+      {
+        getConj(subgoal, subSub);
+      }
+
+      if (subSub.size() > 1)
+      {
+        bool res = true;
+        int part = 1;
+        for (auto & s : subSub)
+        {
+          if (verbose)
+          {
+            if (verbose) outs () << string(sp, ' ') << "proceed with (part " << part << "/" << subSub.size()<< "): " << *s << "\n";
+            part++;
+          }
+
+          auto rewriteHistoryTmp = rewriteHistory;
+          auto rewriteSequenceTmp = rewriteSequence;
+          auto assumptionsTmp = assumptions;
+
+          if (verbose) outs() << string(sp, ' ') << "{\n";
+          sp += 2;
+          res &= rewriteAssumptions(s);
+          sp -= 2;
+          if (verbose) outs() << string(sp, ' ') << "}\n";
+
+          rewriteHistory = rewriteHistoryTmp;
+          rewriteSequence = rewriteSequenceTmp;
+          assumptions = assumptionsTmp;
+          if (!res)
+          {
+            if (verbose) outs() << string(sp, ' ') << "failed to proceed\n";
+            break;
+          }
+        }
+        if (verbose) if (res) outs () << string(sp, ' ')  << "rewriting done\n";
+        return res;
+      }
+
+      // here, assume subSub.size() == 1
+      // thus, subgoal == *subSub.begin()
+
       // quick syntactic check first:
       for (int i = 0; i < assumptions.size(); i++)
+      {
         if (assumptions[i] == subgoal)
         {
-          if (verbose) outs () << "rewriting [" << i << "] done\n";
+          if (toRem) assumptions = assumptionsTmp;
+          if (verbose) outs () << string(sp, ' ') << "rewriting [" << i << "] done\n";
           return true;
         }
+      }
 
-      // todo: more priorities
+      map<int, Expr> allAttempts;
 
       for (int i = 0; i < assumptions.size(); i++)
       {
@@ -276,56 +673,347 @@ namespace ufo
         Expr res = useAssumption(subgoal, a);
         if (res != NULL)
         {
-          // save history
-          rewriteHistory.push_back(res);
-          rewriteSequence.push_back(i);
-
-          ExprSet subRes;
-          getConj(res, subRes);
-          bool done = true;
-          int part = 1;
-          if (subRes.empty() && verbose) outs () << "rewritten [" << i << "]: true\n";
-          for (Expr r : subRes)
-          {
-            auto rewriteHistoryTmp = rewriteHistory;
-            auto rewriteSequenceTmp = rewriteSequence;
-
-            if (verbose)
-            {
-              outs () << "rewritten ";
-              if (subRes.size() > 1) outs () << "(part " << part << "/" << subRes.size()<< ") ";
-              outs () << "[" << i << "]:   " << *r << "\n";
-              part++;
-            }
-            bool res = rewriteAssumptions(r);
-
-            rewriteHistory = rewriteHistoryTmp;
-            rewriteSequence = rewriteSequenceTmp;
-
-            if (res) continue;
-            else
-            {
-              done = false;
-              break;
-            }
-          }
-
-          if (done)
-          {
-            if (verbose) outs () << "rewriting done\n";
-            return true;
-          }
-
-          // failed attempt, remove history
-          rewriteHistory.pop_back();
-          rewriteSequence.pop_back();
-
-          // backtrack:
-//          outs () << "backtrack to:    " << *subgoal << "\n";
+          if (u.isTrue(res)) return true;
+          allAttempts[i] = res;
         }
       }
 
+      vector<int> orderedAttempts1;
+      vector<int> orderedAttempts2;
+      // identifying an order for rewrites
+      for (auto & a : allAttempts)
+      {
+        bool placed = false;
+
+        bool sw;
+        if (earlySplit == 1) sw = treeSize(subgoal) >= treeSize(a.second);
+        else sw = true;
+
+        if (sw)
+        {
+          for (int i = 0; i < orderedAttempts1.size(); i++)
+          {
+            if (treeSize(allAttempts[orderedAttempts1[i]]) > treeSize(a.second))
+            {
+              orderedAttempts1.insert(orderedAttempts1.begin() + i, a.first);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) orderedAttempts1.push_back(a.first);
+        }
+        else
+        {
+          for (int i = 0; i < orderedAttempts2.size(); i++)
+          {
+            if (treeSize(allAttempts[orderedAttempts2[i]]) > treeSize(a.second))
+            {
+              orderedAttempts2.insert(orderedAttempts2.begin() + i, a.first);
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) orderedAttempts2.push_back(a.first);
+        }
+      }
+
+      // first, try easier rewrites
+      if (tryRewriting(orderedAttempts1, allAttempts, subgoal))
+      {
+        if (toRem) assumptions = assumptionsTmp;
+        return true;
+      }
+
+      if (splitDisjAssumptions(subgoal)) return true;
+
+      // second, try harder rewrites
+      if (tryRewriting(orderedAttempts2, allAttempts, subgoal))
+      {
+        if (toRem) assumptions = assumptionsTmp;
+        return true;
+      }
+
+      bool res = false;
+
+      if (isOpX<OR>(subgoal)) res = splitByGoal(subgoal);
+//      if (!res) res = proveByContradiction(subgoal);
+//      if (!res) res = similarityHeuristic(subgoal);
+      if (toRem) assumptions = assumptionsTmp;
+
+      return res;
+    }
+
+    // try rewriting in a particular order
+    bool tryRewriting(vector<int>& orderedAttempts, map<int, Expr>& allAttempts, Expr subgoal)
+    {
+      for (int i : orderedAttempts)
+      {
+        Expr res = allAttempts[i];
+        if (verbose) outs() << string(sp, ' ') << "rewritten [" << i << "]: " << *res << "\n";
+
+        // save history
+        rewriteHistory.push_back(res);
+        rewriteSequence.push_back(i);
+
+        if (rewriteAssumptions(res))
+        {
+          if (verbose) if (res) outs () << string(sp, ' ')  << "rewriting done\n";
+          return true;
+        }
+        else
+        {
+          // failed attempt, remove history
+          rewriteHistory.pop_back();
+          rewriteSequence.pop_back();
+        }
+        
+        // backtrack:
+        if (verbose) outs () << string(sp, ' ') << "backtrack to: " << *subgoal << "\n";
+      }
       return false;
+    }
+
+    bool proveByContradiction (Expr subgoal)
+    {
+      auto assumptionsTmp = assumptions;
+      uniquePushConj(mkNeg(subgoal), assumptions);
+      bool res = false;
+      if (mergeAssumptions(1))
+      {
+        res = true;
+        if (verbose) outs () << string(sp, ' ') << "proven by contradiction\n";
+      }
+      assumptions = assumptionsTmp;
+      return res;
+    }
+
+    bool splitByGoal (Expr subgoal)
+    {
+      // heuristically pick a split (currently, one one predicate)
+      ExprSet dsjs;
+      getDisj(subgoal, dsjs);
+      if (dsjs.size() < 2) return false;
+
+      auto spl = dsjs.end();
+      for (auto it = dsjs.begin(); it != dsjs.end(); ++it)
+      {
+        for (auto & a : assumptions)
+        {
+          if (contains (a, *it))
+          {
+            if (isOp<ComparissonOp>(*it)) spl = it;  // try to find a comparisson
+            if (*spl == NULL) spl = it;              // if none, find any
+          }
+        }
+      }
+      if (spl == dsjs.end()) spl = dsjs.begin();
+      if (verbose) outs() << string(sp, ' ') << "deciding: " << **spl << "\n";
+
+      auto rewriteHistoryTmp = rewriteHistory;
+      auto rewriteSequenceTmp = rewriteSequence;
+      auto assumptionsTmp = assumptions;
+
+      uniquePushConj(mkNeg(*spl), assumptions);
+      if (mergeAssumptions())
+      {
+        assumptions = assumptionsTmp;
+        return true;
+      }
+      printAssumptions();
+
+      dsjs.erase(spl);
+      subgoal = disjoin(dsjs, efac);
+      if (verbose) outs() << string(sp, ' ') << "current subgoal: " << *subgoal << "\n";
+
+      if (verbose) outs () << string(sp, ' ') << "{\n";
+      sp += 2;
+      bool res = rewriteAssumptions(subgoal);
+      sp -= 2;
+      if (verbose) outs () << string(sp, ' ') << "}\n";
+
+      rewriteHistory = rewriteHistoryTmp;
+      rewriteSequence = rewriteSequenceTmp;
+      assumptions = assumptionsTmp;
+      if (res)
+      {
+        if (verbose) outs () << string(sp, ' ') << "succeeded\n";
+        return true;
+      }
+
+      return false;
+    }
+
+    // potentially useful heuristic
+    bool similarityHeuristic (Expr subgoal)
+    {
+      // heuristically pick a split: first, using disjunctions
+      ExprSet cands;
+      for (auto & a : assumptions)
+      {
+        if (isOpX<OR>(a))
+        {
+          ExprSet dsjs;
+          getDisj(a, dsjs);
+          if (dsjs.size() < 2) continue;
+          auto it = dsjs.begin();
+          for (; it != dsjs.end(); ++it)
+          {
+            if (*it == subgoal)
+            {
+              it = dsjs.erase(it);
+              cands.insert(disjoin(dsjs, efac));
+              break;
+            }
+          }
+        }
+      }
+      if (cands.empty())      // then, based on matching
+      {
+        ExprVector args;
+        filter(subgoal, bind::IsConst (), inserter(args, args.begin()));
+        for (auto & a : assumptions)
+        {
+          if (isOpX<FORALL>(a)) continue;
+
+          ExprMap matching;
+          if (findMatching (subgoal, a, args, matching))
+          {
+            ExprSet eqs;
+            for (auto & m : matching)
+              if (m.first != m.second)
+                eqs.insert(mk<EQ>(m.first, m.second));
+            cands.insert(mkNeg(conjoin(eqs, efac)));
+          }
+        }
+        if (cands.empty()) return false;
+      }
+
+      bool changed = false;
+      for (auto & c : cands)
+      {
+        bool redund = false;
+        for (auto & a : assumptions)
+        {
+          if (isOpX<FORALL>(a)) continue;
+          if (u.implies(a, c))
+          {
+            redund = true;
+            break;
+          }
+        }
+        if (redund) continue;
+        uniquePushConj(c, assumptions);
+        changed = true;
+      }
+      if (!changed) return false;
+
+      if (mergeAssumptions())
+      {
+        return true;
+      }
+      printAssumptions();
+
+      if (verbose) outs () << string(sp, ' ') << "current subgoal: " << *subgoal << "\n";
+      if (verbose) outs () << string(sp, ' ') << "{\n";
+      sp += 2;
+      bool res = rewriteAssumptions(subgoal);
+      sp -= 2;
+      if (verbose) outs () << string(sp, ' ') << "}\n";
+
+      return res;
+    }
+
+    bool splitDisjAssumptions (Expr subgoal)
+    {
+      // more like a brute force splitting
+      set<ExprSet> cands;
+      map<ExprSet, Expr> origAssms;
+      for (auto it = assumptions.begin(); it != assumptions.end(); )
+      {
+        Expr a = *it;
+        if (find (blockedAssms.begin(), blockedAssms.end(), *it) != blockedAssms.end())
+        {
+          it = assumptions.erase(it);
+          continue;
+        }
+        if (isOpX<ITE>(a))
+        {
+          a = mk<OR>(mk<AND>(a->left(), a->right()),
+                     mk<AND>(mkNeg(a->left()), a->last()));
+        }
+        a = simplifyBool(simplifyArr(a));
+        if (isOpX<OR>(a))
+        {
+          ExprSet dsjs;
+          getDisj(a, dsjs);
+          if (dsjs.size() < 2) continue;
+          cands.insert(dsjs);
+          origAssms[dsjs] = *it;
+        }
+        ++it;
+      }
+
+      if (cands.empty()) return false;
+      ExprSet spl = *cands.begin();
+
+      if (spl.empty()) return false;
+
+      blockedAssms.push_back(origAssms[spl]);
+
+      int part = 1;
+      bool res = true;
+
+      auto assumptionsTmp = assumptions;
+      auto rewriteHistoryTmp = rewriteHistory;
+      auto rewriteSequenceTmp = rewriteSequence;
+
+      for (auto & s : spl)
+      {
+        if (verbose) outs () << string(sp, ' ') << "split for (part " << part << "/"
+            << spl.size()<< "): " << *s << "\n" << string(sp, ' ') << "{\n";
+        sp += 2;
+
+        uniquePushConj(s, assumptions);
+        if (mergeAssumptions())
+        {
+          assumptions = assumptionsTmp;
+          sp -= 2;
+          if (verbose) outs () << string(sp, ' ') << "}\n";
+          continue;
+        }
+        for (auto it = assumptions.begin(); it != assumptions.end(); ++it)
+        {
+          if (origAssms[spl] == *it)
+          {
+            assumptions.erase(it);
+            break;
+          }
+        }
+        printAssumptions();
+
+        part++;
+
+        res = rewriteAssumptions(subgoal);
+        sp -= 2;
+        if (verbose) outs () << string(sp, ' ') << "}\n";
+
+        rewriteHistory = rewriteHistoryTmp;
+        rewriteSequence = rewriteSequenceTmp;
+        assumptions = assumptionsTmp;
+        if (!res) break;
+      }
+
+      blockedAssms.pop_back();
+      if (res)
+      {
+        if (verbose) outs () << string(sp, ' ') << "splitting succeeded\n";
+        return true;
+      }
+      else
+      {
+        if (verbose) outs () << string(sp, ' ') << "unable to succeed\n";
+        return false;
+      }
     }
 
     // preprocessing of the main goal:
@@ -421,14 +1109,16 @@ namespace ufo
     void printAssumptions()
     {
       if (!verbose) return;
-      outs () << "=========================\n";
+      outs () << string(sp, ' ') << "{\n";
+      outs () << string(sp+2, ' ') << string(20, '=') << "\n";
       for (int i = 0; i < assumptions.size(); i++)
       {
-        outs () << "Assumptions [" << i << "]: " << *assumptions[i] << "\n";
+        outs () << string(sp+2, ' ') << "| Assumptions [" << i << "]: "
+                << *assumptions[i] << "\n";
       }
+      outs () << string(sp+2, ' ') << string(20, '=') << "\n";
+      outs () << string(sp, ' ') << "}\n";
     }
-
-    int glob_ind = 0;
 
     bool induction(int num, vector<int>& basenums, vector<int>& indnums)
     {
@@ -452,25 +1142,35 @@ namespace ufo
 
       // prove the base case
       Expr baseSubgoal = replaceAll(goalQF, typeDecl, baseConstructor);
-      ExprVector assumptionsTmp;
+      ExprVector assumptionsTmp = assumptions;
       if (isOpX<IMPL>(baseSubgoal))
       {
-        assumptionsTmp = assumptions;
         assumptions.push_back(baseSubgoal->left());
         baseSubgoal = baseSubgoal->right();
       }
-      mergeAssumptions();
-      splitAssumptions();
-      printAssumptions();
-      if (verbose) outs() << "\nBase case:       " << *baseSubgoal << "\n";
 
-      rewriteHistory.clear();
-      rewriteSequence.clear();
+      if (verbose) outs() << "\nBase case:       " << *baseSubgoal << "\n{\n";
+      bool baseres = false;
+      if (mergeAssumptions())
+      {
+        if (verbose) outs() << "  proven trivially\n";
+        baseres = true;
+        assumptions = assumptionsTmp;
+      }
+      else
+      {
+        splitAssumptions();
+        printAssumptions();
 
-      bool baseres = basenums.empty() ?
-              rewriteAssumptions(baseSubgoal) :
-              tryStrategy(baseSubgoal, basenums);
+        rewriteHistory.clear();
+        rewriteSequence.clear();
 
+        baseres = basenums.empty() ?
+                rewriteAssumptions(baseSubgoal) :
+                tryStrategy(baseSubgoal, basenums);
+      }
+
+      if (verbose) outs () << "}\n";
       if (!baseres)
       {
         ExprVector newArgs;
@@ -484,7 +1184,7 @@ namespace ufo
           if (verbose) outs () << "\nProceeding to nested induction\n";
           newArgs.push_back(replaceAll(goal->last(), typeDecl, baseConstructor));
           Expr newGoal = mknary<FORALL>(newArgs);
-          ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxSameAssm);
+          ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxGrow, earlySplit);
           if (!sol.solve (basenums, indnums)) return false;
           if (verbose) outs () << "\nReturning to the outer induction\n\n";
         }
@@ -546,10 +1246,11 @@ namespace ufo
         indSubgoal = indSubgoal->right();
       }
 
-      mergeAssumptions();
+      if (mergeAssumptions()) return true;
+
       splitAssumptions();
+      if (verbose) outs() << "Inductive step:  " << * indSubgoal << "\n{\n";
       printAssumptions();
-      if (verbose) outs() << "\nInductive step:  " << * indSubgoal << "\n";
 
       rewriteHistory.clear();
       rewriteSequence.clear();
@@ -557,7 +1258,7 @@ namespace ufo
       bool indres = indnums.empty() ?
                rewriteAssumptions(indSubgoal) :
                tryStrategy(indSubgoal, indnums);
-
+      if (verbose)  outs () << "}\n";
       if (indres) return true;
 
       ExprVector newArgs;
@@ -572,13 +1273,14 @@ namespace ufo
         if (verbose) outs () << "\nProceeding to nested induction\n";
         newArgs.push_back(replaceAll(goal->last(), bind::fapp(typeDecl), indConsApp));
         Expr newGoal = mknary<FORALL>(newArgs);
-        ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxSameAssm);
+        ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxGrow, earlySplit);
         if (sol.solve (basenums, indnums)) return true;
         if (verbose) outs () << "Nested induction unsuccessful\n\n";
       }
 
-      // last resort so far
+//      // last resort so far
       return doCaseSplitting(indSubgoal);
+      return false;
     }
 
     bool doCaseSplitting(Expr goal)
@@ -614,49 +1316,42 @@ namespace ufo
           if (d != NULL)
           {
             assert(isOpX<EQ>(d));
-            if (verbose) outs () << "Case splitting for " << *d->left() << ":\n";
-            if (verbose) outs () << "  Case " << *d << "\n";
+            printAssumptions();
+            if (verbose) outs () << "case splitting for " << *d->left() << ":\n";
+            if (verbose) outs () << "  case " << *d << "\n{\n";
             auto assumptionsTmp = assumptions;
             auto rewriteHistoryTmp = rewriteHistory;
             auto rewriteSequenceTmp = rewriteSequence;
-            Expr assumptionTmp = a;
 
-            assumptions[i] = simplifyBool(replaceAll(assumptionTmp, pre, mk<TRUE>(efac)));
+            for (int j = 0; j < assumptions.size(); j++)
+            {
+              assumptions[j] = simplifyBool(replaceAll(assumptions[j], pre, mk<TRUE>(efac)));
+              assumptions[j] = replaceAll(assumptions[j], d->left(), d->right());
+            }
 
-            ExprSet newAssms;
-            newAssms.insert(d);
-            for (auto & oa : assumptions)
-              getConj(simplifyBool(replaceAll(oa, d->left(), d->right())), newAssms);
-
-            for (auto & na : newAssms) assumptions.push_back(na);
-            mergeAssumptions();
-
+            mergeAssumptions(1);
             printAssumptions();
-            bool partiallyDone = rewriteAssumptions(goal);
+            bool partiallyDone = rewriteAssumptions(replaceAll(goal, d->left(), d->right()));
 
             assumptions = assumptionsTmp;
             rewriteHistory = rewriteHistoryTmp;
             rewriteSequence = rewriteSequenceTmp;
 
             if (!partiallyDone) continue;
-            if (verbose) outs() << "Successful\n\n";
+            if (verbose) outs() << "successful\n}\n";
 
             pre = mkNeg(pre);
             assert(isOpX<EQ>(pre) && pre->left() == d->left());
-            if (verbose) outs () << "  Case " << *pre << "\n";
+            if (verbose) outs () << "  case " << *pre << "\n{\n";
 
-            assumptions[i] = simplifyBool(replaceAll(assumptionTmp, pre, mk<TRUE>(efac)));
-
-            newAssms.clear();
-            newAssms.insert(pre);
-            for (auto & oa : assumptions)
-              getConj(simplifyBool(replaceAll(oa, pre->left(), pre->right())), newAssms);
-
-            for (auto & na : newAssms) assumptions.push_back(na);
-            mergeAssumptions();
-
+            for (int j = 0; j < assumptions.size(); j++)
+            {
+              assumptions[j] = simplifyBool(replaceAll(assumptions[j], pre, mk<TRUE>(efac)));
+              assumptions[j] = replaceAll(assumptions[j], pre->left(), pre->right());
+            }
+            mergeAssumptions(1);
             printAssumptions();
-            bool done = rewriteAssumptions(goal);
+            bool done = rewriteAssumptions(replaceAll(goal, pre->left(), pre->right()));
 
             assumptions = assumptionsTmp;
             rewriteHistory = rewriteHistoryTmp;
@@ -664,7 +1359,7 @@ namespace ufo
 
             if (done)
             {
-              if (verbose) outs() << "Successful\n\n";
+              if (verbose) outs() << "successful\n}\n";
               return true;
             }
           }
@@ -726,7 +1421,11 @@ namespace ufo
       printAssumptions();
       if (verbose) outs () << "=====\n" << *goal << "\n\n\n";
       bool res = rewriteAssumptions(goal);
-      if (!res)
+      if (res)
+      {
+        if (verbose) outs () << "\nProved\n";
+      }
+      else
       {
         // revert and try induction:
         assumptions = assumptionsTmp;
@@ -735,19 +1434,20 @@ namespace ufo
         {
           if (!isOpX<FORALL>(*it))
           {
-            if (isOpX<NEQ>(*it) || isOpX<FAPP>(*it)) // super big hack
+            if (isOpX<NEQ>(*it) || isOpX<FAPP>(*it) || isOpX<NEG>(*it) || isOpX<SELECT>(*it)) // super big hack
               qFreeAssms.insert(*it);
+
             it = assumptions.erase(it);
           }
           else ++it;
         }
 
-        if (verbose) outs () << " Proving by induction\n";
+        if (verbose) outs () << "\nProving by induction\n";
         goal = createQuantifiedFormula(mk<IMPL>(conjoin(qFreeAssms, efac), goal), constructors);
+
         vector<int> basenums, indnums; // dummies
         res = solve(basenums, indnums);
       }
-      if (verbose) outs () << " proved: " << res << "\n";
       return res;
     }
 
@@ -781,12 +1481,12 @@ namespace ufo
         {
           if (induction(i, basenums, indnums))
           {
-            if (verbose) outs () << "                 Proved\n";
+            if (verbose) outs () << "\nProved\n";
             return true;
           }
           else
           {
-            if (verbose) outs () << "                 Failed\n";
+            if (verbose) outs () << "\nFailed\n";
             return false;
           }
         }
@@ -817,7 +1517,8 @@ namespace ufo
     nums.push_back(atoi(substr));
   }
 
-  void adtSolve(EZ3& z3, Expr s, char* basecheck, char *indcheck, int maxDepth, int maxSameAssm, bool verbose)
+  void adtSolve(EZ3& z3, Expr s, char* basecheck, char *indcheck, int maxDepth,
+                int maxGrow, int mergingIts, int earlySplit, bool verbose)
   {
     vector<int> basenums;
     vector<int> indnums;
@@ -835,7 +1536,7 @@ namespace ufo
     {
       if (isOpX<NEG>(c))
       {
-        if (goal != NULL) assert (0 && "cannot identify goal (two negged flas)");
+        if (goal != NULL) assert (0 && "cannot identify goal (two asserts with negged formulas)");
         goal = regularizeQF(c->left());
       }
       else
@@ -850,7 +1551,7 @@ namespace ufo
       return;
     }
 
-    ADTSolver sol (goal, assumptions, constructors, maxDepth, maxSameAssm, verbose);
+    ADTSolver sol (goal, assumptions, constructors, maxDepth, maxGrow, mergingIts, earlySplit, verbose);
     if (isOpX<FORALL>(goal)) sol.solve(basenums, indnums);
     else sol.solveNoind();
   }

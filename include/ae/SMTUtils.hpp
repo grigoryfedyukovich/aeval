@@ -70,6 +70,10 @@ namespace ufo
           }
           smt.assertForallExpr(varz, c->last());
         }
+        else if (isOpX<EXISTS>(c))
+        {
+          smt.assertExpr(c->last());
+        }
         else
         {
           if (containsOp<FORALL>(c)) return logic::indeterminate;
@@ -155,24 +159,19 @@ namespace ufo
      */
     Expr simplifyITE(Expr ex, Expr upLevelCond)
     {
-      ex = replaceAll(ex, upLevelCond, mk<TRUE>(efac));
-      
       if (isOpX<ITE>(ex)){
-        
+
         Expr cond = ex->arg(0);
         Expr br1 = ex->arg(1);
         Expr br2 = ex->arg(2);
-        
-        Expr updCond1 = mk<AND>(upLevelCond, mk<NEG>(cond));
-        Expr updCond2 = mk<AND>(mk<NEG>(upLevelCond), cond);
-        
-        if (!isSat(updCond1)) return br1;
-        
-        if (!isSat(updCond2)) return br2;
-        
+
+        if (!isSat(cond, upLevelCond)) return br2;
+
+        if (!isSat(mk<NEG>(cond), upLevelCond)) return br1;
+
         return mk<ITE>(cond,
-                       simplifyITE(br1, updCond1),
-                       simplifyITE(br2, updCond2));
+                       simplifyITE(br1, mk<AND>(upLevelCond, cond)),
+                       simplifyITE(br2, mk<AND>(upLevelCond, mk<NEG>(cond))));
       } else {
         return ex;
       }
@@ -184,29 +183,30 @@ namespace ufo
     Expr simplifyITE(Expr ex)
     {
       if (isOpX<ITE>(ex)){
-        
+
         Expr cond = simplifyITE(ex->arg(0));
         Expr br1 = ex->arg(1);
         Expr br2 = ex->arg(2);
-        
+
         if (isOpX<TRUE>(cond)) return br1;
         if (isOpX<FALSE>(cond)) return br2;
-        
+
         if (br1 == br2) return br1;
-        
+
         if (isOpX<TRUE>(br1) && isOpX<FALSE>(br2)) return cond;
-        
+
         if (isOpX<FALSE>(br1) && isOpX<TRUE>(br2)) return mk<NEG>(cond);
-        
+
         return mk<ITE>(cond,
                        simplifyITE(br1, cond),
                        simplifyITE(br2, mk<NEG>(cond)));
-        
-      } else if (isOpX<IMPL>(ex)) {
-        
+
+      }
+      else if (isOpX<IMPL>(ex)) {
+
         return mk<IMPL>(simplifyITE(ex->left()), simplifyITE(ex->right()));
       } else if (isOpX<AND>(ex) || isOpX<OR>(ex)){
-        
+
         ExprSet args;
         for (auto it = ex->args_begin(), end = ex->args_end(); it != end; ++it){
           args.insert(simplifyITE(*it));
@@ -334,10 +334,15 @@ namespace ufo
       else if (bind::isBoolConst(var))
         return "Bool";
       else if (bind::isConst<ARRAY_TY> (var))
-        return "(Array Int Int)";
+      {
+        Expr name = mkTerm<string> ("", var->getFactory());
+        Expr s1 = bind::mkConst(name, var->last()->right()->left());
+        Expr s2 = bind::mkConst(name, var->last()->right()->right());
+        return string("(Array ") + varType(s1) + string(" ") + varType(s2) + string(")");
+      }
       else if (bind::isConst<AD_TY> (var))
       {
-        string str = lexical_cast<std::string>(var->last()->last());
+        string str = lexical_cast<string>(var->last()->last());
         return str.substr(1, str.length() - 2);
       }
       else return "";
