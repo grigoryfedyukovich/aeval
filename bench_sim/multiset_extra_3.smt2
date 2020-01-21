@@ -11,22 +11,12 @@
   (= (R (cons in xs) s)
     (and (= (select s in) (+ 1 (num in xs))) (R xs (store s in (+ (- 1) (select s in))))))))
 
-(declare-fun removeall (Elem Lst) Lst)
-(assert (forall ((x Elem)) (= (removeall x nil) nil)))
-(assert (forall ((x Elem) (y Elem) (xs Lst))
-  (= (removeall x (cons y xs)) (ite (= x y) (removeall x xs) (cons y (removeall x xs))))))
-
 ; extras
+
+(assert (forall ((xs Lst) (in Elem)) (>= (num in xs) 0)))
 
 (assert (forall ((xs Lst) (in Elem) (s (Array Elem Int)))
   (=> (R xs s) (= (select s in) (num in xs)))))
 
-(assert (forall ((xs Lst) (a (Elem)) (b (Elem)))
-  (=> (distinct a b) (= (num b (removeall a xs)) (num b xs)))))
-
-(declare-fun xs () Lst)
-(declare-fun in () Elem)
-(declare-fun s () (Array Elem Int))
-
-(assert (R xs s))
-(assert (not (R (removeall in xs) (store s in 0))))
+(assert (not (forall ((xs Lst) (in Elem) (s (Array Elem Int)))
+  (=> (R xs s) (>= (select s in) 0)))))

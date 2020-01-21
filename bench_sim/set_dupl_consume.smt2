@@ -24,10 +24,7 @@
   (=> (and (C x xs) (distinct y x)) (C x (removeall y xs)))))
 
 (assert (forall ((xs Lst) (x Elem))
-  (=> (not (C x xs))
-  (= (removeall x xs) xs))))
-
-; solved with --early-split 1
+  (=> (not (C x xs)) (= (removeall x xs) xs))))
 
 (assert (not
   (forall ((xs Lst) (in Elem) (A (Array Elem Bool)))

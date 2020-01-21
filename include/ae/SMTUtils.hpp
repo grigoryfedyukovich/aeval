@@ -135,6 +135,7 @@ namespace ufo
      */
     bool isFalse(Expr a){
       if (isOpX<FALSE>(a)) return true;
+      if (isOpX<NEQ>(a) && a->left() == a->right()) return true;
       return !isSat(a);
     }
 

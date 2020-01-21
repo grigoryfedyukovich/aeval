@@ -24,4 +24,4 @@
 ; remove
 
 (assert
-  (= s1 (store s in 0)))
+  (= s1 (ite (> (select s in) 0) (store s in (+ -1 (select s in))) s)))

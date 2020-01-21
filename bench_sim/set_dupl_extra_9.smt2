@@ -19,5 +19,4 @@
 
 ; proved
 (assert (not (forall ((xs Lst) (x Elem))
-  (=> (not (C x xs))
-  (= (removeall x xs) xs)))))
+  (=> (not (C x xs)) (= (removeall x xs) xs)))))
