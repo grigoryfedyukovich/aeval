@@ -477,7 +477,7 @@ namespace ufo
         return mkMPZ(c + boost::lexical_cast<cpp_int> (e), efac);
       
       Expr ce = isInt ? mkMPZ(c, efac) :
-                        mkTerm (mpq_class (string(c)), efac);
+                        mkTerm (mpq_class (lexical_cast<string>(c)), efac);
       return mk<PLUS>(e, ce);
     }
     
