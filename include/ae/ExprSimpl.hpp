@@ -3600,32 +3600,29 @@ namespace ufo
   {
     bool found;
     ExprVector& vars;
-    ExprMap& matching;
+    std::set<ExprMap>& matchingSet;
     Expr pattern;
-    SubexprMatcher (Expr _p, ExprVector& _v, ExprMap& _m) :
-      found (false), pattern(_p), vars(_v), matching(_m) {}
+    SubexprMatcher (Expr _p, ExprVector& _v, std::set<ExprMap>& _m) :
+      found(false), pattern(_p), vars(_v), matchingSet(_m) {}
 
     VisitAction operator() (Expr exp)
     {
-      if (found)
-      {
-        return VisitAction::skipKids ();
-      }
-      else if ((isOpX<FAPP>(exp) || isOp<ComparissonOp>(exp) ||
-                isOp<BoolOp>(exp) || isOpX<SELECT>(exp) || isOpX<STORE>(exp)) &&
-               !(containsOp<FORALL>(exp) || containsOp<EXISTS>(exp)) &&
-               findMatching (pattern, exp, vars, matching))
+      ExprMap matching;
+      if ((isOpX<FAPP>(exp) || isOp<ComparissonOp>(exp) ||
+        isOp<BoolOp>(exp) || isOpX<SELECT>(exp) || isOpX<STORE>(exp)) &&
+        !(containsOp<FORALL>(exp) || containsOp<EXISTS>(exp)) &&
+        findMatching (pattern, exp, vars, matching))
       {
         found = true;
-        return VisitAction::skipKids ();
+        matchingSet.insert(matching);
       }
       return VisitAction::doKids ();
     }
   };
 
-  inline bool findMatchingSubexpr (Expr pattern, Expr exp, ExprVector& vars, ExprMap& matching)
+  inline bool findMatchingSubexpr (Expr pattern, Expr exp, ExprVector& vars, std::set<ExprMap>& matchingSet)
   {
-    SubexprMatcher fn (pattern, vars, matching);
+    SubexprMatcher fn (pattern, vars, matchingSet);
     dagVisit (fn, exp);
     return fn.found;
   }
