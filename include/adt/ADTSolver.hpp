@@ -316,7 +316,7 @@ namespace ufo
             {
               if (fwd) // used in simplifyAssm
               {
-                if (!isOpX<FORALL>(subgoal) && u.implies(subgoal, repl->left()))
+                if (!isOpX<FORALL>(subgoal) && u.implies(subgoal, auxRepl->left()))
                 {
                   ExprSet vars;
                   filter (assmQF, bind::IsConst (), inserter(vars, vars.begin()));
@@ -337,17 +337,17 @@ namespace ufo
                   // sanity removal
                   for (auto it = args.begin(); it != args.end();)
                   {
-                    if (contains (repl->right(), *it)) ++it;
+                    if (contains (auxRepl->right(), *it)) ++it;
                     else it = args.erase(it);
                   }
 
                   if (args.empty())
                   {
-                    replaced = repl->right();
+                    replaced = auxRepl->right();
                   }
                   else
                   {
-                    replaced = createQuantifiedFormulaRestr(repl->right(), args);
+                    replaced = createQuantifiedFormulaRestr(auxRepl->right(), args);
                   }
                 }
               }
@@ -355,7 +355,7 @@ namespace ufo
               {
                 ExprSet vars;
                 filter(assmQF, bind::IsConst (), inserter(vars, vars.begin()));
-                replaced = replaceAll(subgoal, repl->right(), repl->left());
+                replaced = replaceAll(subgoal, auxRepl->right(), auxRepl->left());
 
                 for (auto it = args.begin(); it != args.end();)
                 {
@@ -374,7 +374,7 @@ namespace ufo
             }
             else
             {
-              replaced = replaceAll(subgoal, repl, mk<TRUE>(efac));
+              replaced = replaceAll(subgoal, auxRepl, mk<TRUE>(efac));
             }
 
             if (subgoal != replaced) 
@@ -402,16 +402,16 @@ namespace ufo
             return true;
           }
           // try vice versa (dangerous since it will introduce repeated rewriting)
-          matchingSet.clear();
-          if (!fwd && findMatchingSubexpr (assmQF->right(), subgoal, args, matchingSet))
-          {
-            for (auto matching : matchingSet) {
-              Expr auxRepl = repl;
-              auxRepl = replaceAll(auxRepl, matching);
-              result.push_back(replaceAll(subgoal, auxRepl->right(), auxRepl->left()));
-            }
-            return true;
-          }
+          // matchingSet.clear();
+          // if (!fwd && findMatchingSubexpr (assmQF->right(), subgoal, args, matchingSet))
+          // {
+          //   for (auto matching : matchingSet) {
+          //     Expr auxRepl = repl;
+          //     auxRepl = replaceAll(auxRepl, matching);
+          //     result.push_back(replaceAll(subgoal, auxRepl->right(), auxRepl->left()));
+          //   }
+          //   return true;
+          // }
         }
 
         if (isOp<ComparissonOp>(assmQF) && isOp<ComparissonOp>(subgoal))
@@ -826,13 +826,14 @@ namespace ufo
         }
       }
 
-      map<int, Expr> allAttempts;
+      map<int, ExprVector> allAttempts;
 
       for (int i = 0; i < assumptions.size(); i++)
       {
         Expr a = assumptions[i];
         ExprVector result;
         if (useAssumption(subgoal, a, result)) {
+          if (verbose) outs () << string(sp, ' ') << "found " << result.size() << " substitution(s) for assumption " << i << "\n";
           for (auto & it : result) {
             if (u.isTrue(it))
             {
@@ -840,54 +841,55 @@ namespace ufo
               return true;
             }
           }
-          Expr res = result.front();
-          if (find (rewriteHistory.begin(), rewriteHistory.end(), res) == rewriteHistory.end())
-            allAttempts[i] = res;
+          for (auto & it : result) {
+            if (find (rewriteHistory.begin(), rewriteHistory.end(), it) == rewriteHistory.end())
+            allAttempts[i].push_back(it);
+          }
         }
       }
 
-      vector<int> orderedAttempts1;
-      vector<int> orderedAttempts2;
+      // vector<int> orderedAttempts1;
+      // vector<int> orderedAttempts2;
 
       // identifying an order for rewrites
-      for (auto & a : allAttempts)
-      {
-        bool placed = false;
+      // for (auto & a : allAttempts)
+      // {
+      //   bool placed = false;
 
-        bool sw;
-        if (earlySplit == 1) sw = treeSize(subgoal) >= treeSize(a.second);
-        else sw = true;
+      //   bool sw;
+      //   if (earlySplit == 1) sw = treeSize(subgoal) >= treeSize(a.second);
+      //   else sw = true;
 
-        if (sw)
-        {
-          for (int i = 0; i < orderedAttempts1.size(); i++)
-          {
-            if (treeSize(allAttempts[orderedAttempts1[i]]) > treeSize(a.second))
-            {
-              orderedAttempts1.insert(orderedAttempts1.begin() + i, a.first);
-              placed = true;
-              break;
-            }
-          }
-          if (!placed) orderedAttempts1.push_back(a.first);
-        }
-        else
-        {
-          for (int i = 0; i < orderedAttempts2.size(); i++)
-          {
-            if (treeSize(allAttempts[orderedAttempts2[i]]) > treeSize(a.second))
-            {
-              orderedAttempts2.insert(orderedAttempts2.begin() + i, a.first);
-              placed = true;
-              break;
-            }
-          }
-          if (!placed) orderedAttempts2.push_back(a.first);
-        }
-      }
+      //   if (sw)
+      //   {
+      //     for (int i = 0; i < orderedAttempts1.size(); i++)
+      //     {
+      //       if (treeSize(allAttempts[orderedAttempts1[i]]) > treeSize(a.second))
+      //       {
+      //         orderedAttempts1.insert(orderedAttempts1.begin() + i, a.first);
+      //         placed = true;
+      //         break;
+      //       }
+      //     }
+      //     if (!placed) orderedAttempts1.push_back(a.first);
+      //   }
+      //   else
+      //   {
+      //     for (int i = 0; i < orderedAttempts2.size(); i++)
+      //     {
+      //       if (treeSize(allAttempts[orderedAttempts2[i]]) > treeSize(a.second))
+      //       {
+      //         orderedAttempts2.insert(orderedAttempts2.begin() + i, a.first);
+      //         placed = true;
+      //         break;
+      //       }
+      //     }
+      //     if (!placed) orderedAttempts2.push_back(a.first);
+      //   }
+      // }
 
       // first, try easier rewrites
-      if (tryRewriting(orderedAttempts1, allAttempts, subgoal))
+      if (tryRewriting(allAttempts, subgoal))
       {
         if (toRem) assumptions = assumptionsTmp;
         return true;
@@ -896,7 +898,7 @@ namespace ufo
       if (splitDisjAssumptions(subgoal)) return true;
 
       // second, try harder rewrites
-      if (tryRewriting(orderedAttempts2, allAttempts, subgoal))
+      if (tryRewriting(allAttempts, subgoal))
       {
         if (toRem) assumptions = assumptionsTmp;
         return true;
@@ -913,31 +915,33 @@ namespace ufo
     }
 
     // try rewriting in a particular order
-    bool tryRewriting(vector<int>& orderedAttempts, map<int, Expr>& allAttempts, Expr subgoal)
+    bool tryRewriting(map<int, ExprVector>& allAttempts, Expr subgoal)
     {
-      for (int i : orderedAttempts)
-      {
-        Expr res = allAttempts[i];
-        if (verbose) outs() << string(sp, ' ') << "rewritten [" << i << "]: " << *res << "\n";
+      for (auto & a : allAttempts) {
+        outs() << string(sp, ' ') << allAttempts.size() << "\n";
+        int i = a.first;
+        for (auto & exp : a.second) {
+          if (verbose) outs() << string(sp, ' ') << "rewritten [" << i << "]: " << *exp << "\n";
 
-        // save history
-        rewriteHistory.push_back(res);
-        rewriteSequence.push_back(i);
+          // save history
+          rewriteHistory.push_back(exp);
+          rewriteSequence.push_back(i);
 
-        if (rewriteAssumptions(res))
-        {
-          if (verbose) if (res) outs () << string(sp, ' ')  << "rewriting done\n";
-          return true;
+          if (rewriteAssumptions(exp))
+          {
+            if (verbose) if (exp) outs () << string(sp, ' ')  << "rewriting done\n";
+            return true;
+          }
+          else
+          {
+            // failed attempt, remove history
+            rewriteHistory.pop_back();
+            rewriteSequence.pop_back();
+          }
+          
+          // backtrack:
+          if (verbose) outs () << string(sp, ' ') << "backtrack to: " << *subgoal << "\n";
         }
-        else
-        {
-          // failed attempt, remove history
-          rewriteHistory.pop_back();
-          rewriteSequence.pop_back();
-        }
-        
-        // backtrack:
-        if (verbose) outs () << string(sp, ' ') << "backtrack to: " << *subgoal << "\n";
       }
       return false;
     }
