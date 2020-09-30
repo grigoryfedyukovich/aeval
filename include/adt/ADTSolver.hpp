@@ -175,25 +175,28 @@ namespace ufo
 
         ExprVector result;
         if (useAssumption(assm, a, result, true)) {
-          Expr tmp = result.front();
-          if (!u.isTrue(tmp))
-            {
-            if (u.isFalse(tmp))
-            {
-              if (verbose) outs () << string(sp, ' ')
-                << "inconsistent assumptions: " << *assm << " and " << *a << "\n";
-              return true;
-            }
 
-            tmp = simplifyArithm(tmp);
-            ExprSet tmps;
-            getConj(simplifyBool(tmp), tmps);
-            getConj(simplifyBool(simplifyArr(tmp)), tmps); // duplicate for the case of arrays
-            for (auto & t : tmps)
-            {
-              if (find(assumptions.begin(), assumptions.end(), t) == assumptions.end())
+          for (auto & it : result) {
+            Expr tmp = it;
+            if (!u.isTrue(tmp))
               {
-                newAssms.insert(t);
+              if (u.isFalse(tmp))
+              {
+                if (verbose) outs () << string(sp, ' ')
+                  << "inconsistent assumptions: " << *assm << " and " << *a << "\n";
+                return true;
+              }
+
+              tmp = simplifyArithm(tmp);
+              ExprSet tmps;
+              getConj(simplifyBool(tmp), tmps);
+              getConj(simplifyBool(simplifyArr(tmp)), tmps); // duplicate for the case of arrays
+              for (auto & t : tmps)
+              {
+                if (find(assumptions.begin(), assumptions.end(), t) == assumptions.end())
+                {
+                  newAssms.insert(t);
+                }
               }
             }
           }
@@ -679,12 +682,11 @@ namespace ufo
         ExprVector result;
         if (useAssumption(subgoal_copy, assumptions[i], result)) {
           for (auto & it : result) {
-            outs() << "AFTER USE Assumptions tryStrategy " << *it << "\n";
-          }
-          subgoal_copy = result.front();
-          if (subgoal_copy == subgoal) break;
+            subgoal_copy = it;
+            if (subgoal_copy == subgoal) break;
 
-          if (u.isEquiv(subgoal_copy, mk<TRUE>(efac))) return true;
+            if (u.isEquiv(subgoal_copy, mk<TRUE>(efac))) return true;
+          }
         }
       }
       return false;
