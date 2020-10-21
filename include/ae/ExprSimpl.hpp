@@ -1809,8 +1809,11 @@ namespace ufo
       return bind::mkConst(new_name, mk<ARRAY_TY> (
              mk<INT_TY> (new_name->getFactory()),
              mk<INT_TY> (new_name->getFactory()))); // GF: currently, only Arrays over Ints
-
-    else return NULL;
+    else if (bind::isAdtConst(var))
+      return bind::adtConst(new_name);
+    else
+      assert(0);
+    return NULL;
   }
 
   inline static bool hasBoolSort(Expr e)
