@@ -18,8 +18,8 @@ Compiles with gcc-5 (on Linux) and clang-900 (on Mac). Assumes preinstalled Svn,
 * `make` to build dependencies (Z3 and LLVM)
 * `make` (again) to build FreqHorn
 
-The binary of FreqHorn can be found at `build/tools/deep/`.
-Run `./tools/deep/freqhorn --help` for the usage info.
+The binary of FreqHorn can be found at `build/tools/nonlin/`.
+Run `./tools/deep/freqn --help` for the usage info.
 
 MinimizIng Generated Invariants
 ========================

@@ -181,6 +181,9 @@ else()
   set(GMPXX_LIB "")
 endif()
 
+find_package(OpenMP)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+
 install(DIRECTORY include/
   DESTINATION include
   FILES_MATCHING
