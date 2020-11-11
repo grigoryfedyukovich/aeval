@@ -36,7 +36,6 @@ namespace ufo
     ExprVector locVars;
 
     Expr body;
-    Expr head;
 
     ExprVector srcRelations;
     Expr dstRelation;
@@ -125,7 +124,7 @@ namespace ufo
           if (rel->arity() >= 2)
           {
             addDecl(rel);
-            srcRelations.push_back(rel->arg(0));
+            srcRelations.push_back(rel);
             ExprVector tmp;
             for (auto it = term->args_begin()+1, end = term->args_end(); it != end; ++it)
               tmp.push_back(*it);
@@ -141,7 +140,7 @@ namespace ufo
 
     void addDecl (Expr a)
     {
-      if (invVars[a->arg(0)].size() == 0)
+      if (invVars[a].size() == 0)
       {
         decls.insert(a);
         for (int i = 1; i < a->arity()-1; i++)
@@ -158,11 +157,14 @@ namespace ufo
           else if (isOpX<ARRAY_TY> (a->arg(i))) // GF: currently support only arrays over Ints
             var = bind::mkConst(new_name, mk<ARRAY_TY>
                   (mk<INT_TY> (m_efac), mk<INT_TY> (m_efac)));
-          else if (isOpX<AD_TY>(a->arg(i)))
-            var = bind::adtConst(new_name);
+          else if (isOpX<AD_TY>(a->arg(i))){
+            ExprVector type;
+            type.push_back(a->arg(i));
+            var = bind::fapp(bind::fdecl (new_name, type));
+          }
           else
             assert(0);
-          invVars[a->arg(0)].push_back(var);
+          invVars[a].push_back(var);
         }
       }
     }
@@ -247,7 +249,7 @@ namespace ufo
           {
             errs () << "Unsupported format\n";
             errs () << "   " << *body << "\n";
-            exit (0);
+            exit (1);
           }
         }
 
@@ -263,14 +265,12 @@ namespace ufo
           {
             addDecl(head->arg(0));
           }
-          hr.head = head->arg(0);
-          hr.dstRelation = hr.head->arg(0);
+          hr.dstRelation = head->arg(0);
         }
         else
         {
           if (!isOpX<FALSE>(head)) body = mk<AND>(body, mk<NEG>(head));
           addFailDecl(mk<FALSE>(m_efac));
-          hr.head = mk<FALSE>(m_efac);
           hr.dstRelation = mk<FALSE>(m_efac);
         }
 
@@ -344,7 +344,7 @@ namespace ufo
         if (failDecl != decl)
         {
           errs () << "Multiple queries are not supported\n";
-          exit(0);
+          exit(1);
         }
       }
     }
@@ -379,7 +379,7 @@ namespace ufo
 
       for (int i = 0; i < hr.srcRelations.size(); i++)
       {
-        outs () << * hr.srcRelations[i];
+        outs () << * hr.srcRelations[i]->left();
         outs () << " (";
         for(auto &a: hr.srcVars[i]) outs() << *a << ", ";
           outs () << "\b\b)";
@@ -391,7 +391,10 @@ namespace ufo
       else
         outs () << "\b\b\b\b";
 
-      outs() << " -> " << * hr.dstRelation;
+      if (hr.isQuery)
+        outs () << " -> false";
+      else
+        outs () << " -> " << * hr.dstRelation->left();
 
       if (hr.dstVars.size() > 0)
       {

@@ -39,7 +39,7 @@ namespace ufo
     public:
 
     ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors,
-              int _maxDepth = 5, int _maxGrow = 3, int _mergingIts = 3, int _earlySplit = 1, bool _verbose = false) :
+              int _maxDepth = 5, int _maxGrow = 3, int _mergingIts = 3, int _earlySplit = 1, bool _verbose = true) :
         goal(_goal), assumptions(_assumptions), constructors(_constructors),
         efac(_goal->getFactory()), u(_goal->getFactory()), maxDepth(_maxDepth), maxGrow(_maxGrow), mergingIts(_mergingIts),
         earlySplit(_earlySplit), verbose(_verbose) {}
@@ -1220,7 +1220,7 @@ namespace ufo
                 if (indConstructors[type] != NULL && indConstructors[type] != a)
                 {
                   outs () << "Several inductive constructors are not supported\n";
-                  exit(0);
+                  exit(1);
                 }
                 indConstructors[type] = a;
               }
@@ -1230,7 +1230,7 @@ namespace ufo
               if (baseConstructors[type] != NULL && baseConstructors[type] != a)
               {
                 outs () << "Several base constructors are not supported\n";
-                exit(0);
+                exit(1);
               }
               baseConstructors[type] = a;
             }

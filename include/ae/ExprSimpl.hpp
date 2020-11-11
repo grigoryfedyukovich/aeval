@@ -1810,7 +1810,12 @@ namespace ufo
              mk<INT_TY> (new_name->getFactory()),
              mk<INT_TY> (new_name->getFactory()))); // GF: currently, only Arrays over Ints
     else if (bind::isAdtConst(var))
-      return bind::adtConst(new_name);
+    {
+      ExprVector type;
+      type.push_back(var->last()->last());
+      Expr e = bind::fapp(bind::fdecl (new_name, type));
+      return e;
+    }
     else
       assert(0);
     return NULL;
