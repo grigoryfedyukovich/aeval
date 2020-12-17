@@ -27,6 +27,8 @@ namespace ufo
     }
 
     ExprVector spec;
+    ExprVector goal_assumptions;
+    ExprMap replace_vars;
     std::vector<int> spec_ids;
     std::vector<size_t> adt_inds;
 
@@ -81,16 +83,25 @@ namespace ufo
             Expr rel = bind::fdecl (efac.mkTerm(a.srcRelations[i]->left()->op()), types);
             Expr baseApp = bind::fapp (rel, newVars);
             Expr baseDef = mk<EQ>(baseApp, a.srcVars[i][ind-1]);
-            spec_ids.push_back(spec.size());
-            spec.push_back(baseDef);
+            replace_vars[a.srcRelations[i]->left()] = baseDef;
+            // spec_ids.push_back(spec.size());
+            // goal_assumptions.push_back(baseDef);
           }
           else {
              Expr tmp = bind::fapp (a.srcRelations[i], a.srcVars[i]);
-             spec.push_back(tmp);
+             goal_assumptions.push_back(tmp);
           }
         }
-        // TODO: neg only neg conj
         spec.push_back(mkNeg(a.body));
+        // for(int j = 0; j < a.body->arity(); ++j) {
+        //   outs() << isOpX<NEG>(a.body->arg(j)) << " " << *a.body->arg(j) << "\n";
+        //   outs() << *a.body << "\n";
+        //   if (isOpX<NEG>(a.body->arg(j))) {
+        //     outs() << "neg " << a.body->arg(j) << "\n";
+        //     spec.push_back(mkNeg(a.body->arg(j)));
+        //   }
+        //   goal_assumptions.push_back((a.body->arg(j)));
+        // }
       }
       else {
         ExprVector cnj;
@@ -147,37 +158,60 @@ namespace ufo
 
     for (auto & a : ruleManager.chcs) {
       if (aux[a.dstRelation->left()] != 0) {
-        Expr goal = conjoin(spec, efac);
+        // Expr goal = conjoin(spec, efac);
+        // Expr goal;
         ExprMap matching;
-        size_t ind = aux[a.dstRelation->left()];
-        for (int i = 0; i < spec_ids.size(); ++i) {
-          Expr e = spec[spec_ids[i]];
-          matching[e->right()] = a.dstVars[ind-1];
-          for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
-            if (j != ind) {
-              matching[e->left()->arg(j)] = a.dstVars[j-1];
-            }
-          }
-          goal = replaceAll(goal, matching);
-        }
         ExprVector newAssumptions = assumptions;
+        size_t ind = aux[a.dstRelation->left()];
+        Expr e = replace_vars[a.dstRelation->left()];
+        matching[e->right()] = a.dstVars[ind-1];
+        for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
+          if (j != ind) {
+            matching[e->left()->arg(j)] = a.dstVars[j-1];
+          }
+        }
+        outs() << "HERE " << *e << "\n";
+        outs() << *replaceAll(e, matching) << "\n";
+        newAssumptions.push_back(replaceAll(e, matching));
+        // for (int i = 0; i < spec_ids.size(); ++i) {
+        //   Expr e = goal_assumptions[spec_ids[i]];
+        //   matching[e->right()] = a.dstVars[ind-1];
+        //   for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
+        //     if (j != ind) {
+        //       matching[e->left()->arg(j)] = a.dstVars[j-1];
+        //     }
+        //   }
+        //   newAssumptions.push_back(replaceAll(e, matching));
+        // }
+        for (auto & a : goal_assumptions) {
+          newAssumptions.push_back(replaceAll(a, matching));
+        }
+        Expr goal = conjoin(spec, efac);
         newAssumptions.push_back(a.body);
         if (a.isInductive) {
           matching.clear();
           size_t ind = aux[a.srcRelations[0]->left()];
-          Expr tmp = conjoin(spec, efac);
-          outs() << "tmp: " << *tmp << "\n";
-          for (int i = 0; i < spec_ids.size(); ++i) {
-            Expr e = spec[spec_ids[i]];
-            matching[e->right()] = a.srcVars[0][ind-1];
-            for(int j = 1; j < a.srcRelations[0]->arity() - 1; ++j) {
-              if (j != ind) {
-                matching[e->left()->arg(j)] = a.srcVars[0][j-1];
-              }
+          Expr e = replace_vars[a.dstRelation->left()];
+          matching[e->right()] = a.srcVars[0][ind-1];
+          for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
+            if (j != ind) {
+              matching[e->left()->arg(j)] = a.srcVars[0][j-1];
             }
-            tmp = replaceAll(tmp, matching);
-            newAssumptions.push_back(tmp);
           }
+          newAssumptions.push_back(replaceAll(e, matching));
+          // Expr tmp = conjoin(spec, efac);
+          // outs() << "tmp: " << *tmp << "\n";
+          // for (int i = 0; i < spec_ids.size(); ++i) {
+          //   Expr e = spec[spec_ids[i]];
+          //   matching[e->right()] = a.srcVars[0][ind-1];
+          //   for(int j = 1; j < a.srcRelations[0]->arity() - 1; ++j) {
+          //     if (j != ind) {
+          //       matching[e->left()->arg(j)] = a.srcVars[0][j-1];
+          //     }
+          //   }
+          //   tmp = replaceAll(tmp, matching);
+          //   newAssumptions.push_back(tmp);
+          // }
         }
 
         outs() << "print new assumptions: " << "\n";
