@@ -72,6 +72,7 @@ namespace ufo
             size_t ind = aux[a.srcRelations[i]->left()];
             ExprVector types;
             ExprVector newVars;
+            types.push_back(bind::typeOf(a.srcVars[i][ind-1]));
             for(int j = 1; j < a.srcRelations[i]->arity() - 1; ++j) {
               if (j != ind) {
                 Expr e = a.srcRelations[i]->arg(j);
@@ -79,10 +80,9 @@ namespace ufo
                 newVars.push_back(a.srcVars[i][j-1]);
               }
             }
-            types.push_back(bind::typeOf(a.srcVars[i][ind-1]));
             Expr rel = bind::fdecl (efac.mkTerm(a.srcRelations[i]->left()->op()), types);
             Expr baseApp = bind::fapp (rel, newVars);
-            Expr baseDef = mk<EQ>(baseApp, a.srcVars[i][ind-1]);
+            Expr baseDef = mk<EQ>(a.srcVars[i][ind-1], baseApp);
             replace_vars[a.srcRelations[i]->left()] = baseDef;
             // spec_ids.push_back(spec.size());
             // goal_assumptions.push_back(baseDef);
@@ -111,6 +111,7 @@ namespace ufo
             Expr tmp = bind::fapp (a.srcRelations[i], a.srcVars[i]);
             ExprVector types;
             ExprVector newVars;
+            types.push_back(bind::typeOf(a.srcVars[i][ind-1]));
             for(int j = 1; j < a.srcRelations[i]->arity() - 1; ++j) {
               if (j != ind) {
                 Expr e = a.srcRelations[i]->arg(j);
@@ -118,10 +119,9 @@ namespace ufo
                 newVars.push_back(a.srcVars[i][j-1]);
               }
             }
-            types.push_back(bind::typeOf(a.srcVars[i][ind-1]));
             Expr rel = bind::fdecl (efac.mkTerm(a.dstRelation->left()->op()), types);
             Expr app = bind::fapp (rel, newVars);
-            Expr def = mk<EQ>(app, a.srcVars[i][ind-1]);
+            Expr def = mk<EQ>( a.srcVars[i][ind-1], app);
             cnj.push_back(def);
           }
           else {
@@ -136,16 +136,16 @@ namespace ufo
           size_t ind = aux[a.dstRelation->left()];
           ExprVector types;
           ExprVector newVars;
+          types.push_back(bind::typeOf(a.dstVars[ind-1]));
           for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
             if (j != ind) {
               types.push_back(bind::typeOf(a.dstVars[j-1]));
               newVars.push_back(a.dstVars[j-1]);
             }
           }
-          types.push_back(bind::typeOf(a.dstVars[ind-1]));
           Expr rel = bind::fdecl (efac.mkTerm(a.dstRelation->left()->op()), types);
           Expr baseApp = bind::fapp (rel, newVars);
-          destination = mk<EQ>(baseApp, a.dstVars[ind-1]);
+          destination = mk<EQ>(a.dstVars[ind-1], baseApp);
         }
         assumptions.push_back(createQuantifiedFormula(
         mk<IMPL>(conjoin(cnj, efac), destination), empt));
@@ -164,14 +164,12 @@ namespace ufo
         ExprVector newAssumptions = assumptions;
         size_t ind = aux[a.dstRelation->left()];
         Expr e = replace_vars[a.dstRelation->left()];
-        matching[e->right()] = a.dstVars[ind-1];
+        matching[e->left()] = a.dstVars[ind-1];
         for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
           if (j != ind) {
-            matching[e->left()->arg(j)] = a.dstVars[j-1];
+            matching[e->right()->arg(j)] = a.dstVars[j-1];
           }
         }
-        outs() << "HERE " << *e << "\n";
-        outs() << *replaceAll(e, matching) << "\n";
         newAssumptions.push_back(replaceAll(e, matching));
         // for (int i = 0; i < spec_ids.size(); ++i) {
         //   Expr e = goal_assumptions[spec_ids[i]];
@@ -186,19 +184,30 @@ namespace ufo
         for (auto & a : goal_assumptions) {
           newAssumptions.push_back(replaceAll(a, matching));
         }
-        Expr goal = conjoin(spec, efac);
-        newAssumptions.push_back(a.body);
+        ExprVector replaced_spec;
+        for (auto &s : spec) {
+          replaced_spec.push_back(replaceAll(s, matching));
+        }
+        Expr goal = conjoin(replaced_spec, efac);
+        for(int j = 0; j < a.body->arity(); ++j) {
+          newAssumptions.push_back((a.body->arg(j)));
+        }
         if (a.isInductive) {
           matching.clear();
+          replaced_spec.clear();
           size_t ind = aux[a.srcRelations[0]->left()];
           Expr e = replace_vars[a.dstRelation->left()];
-          matching[e->right()] = a.srcVars[0][ind-1];
+          matching[e->left()] = a.srcVars[0][ind-1];
           for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
             if (j != ind) {
-              matching[e->left()->arg(j)] = a.srcVars[0][j-1];
+              matching[e->right()->arg(j)] = a.srcVars[0][j-1];
             }
           }
           newAssumptions.push_back(replaceAll(e, matching));
+          for (auto &s : spec) {
+            replaced_spec.push_back(replaceAll(s, matching));
+          }
+          newAssumptions.push_back(conjoin(replaced_spec, efac));
           // Expr tmp = conjoin(spec, efac);
           // outs() << "tmp: " << *tmp << "\n";
           // for (int i = 0; i < spec_ids.size(); ++i) {
