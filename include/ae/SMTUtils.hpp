@@ -20,10 +20,10 @@ namespace ufo
   public:
 
     SMTUtils (ExprFactory& _efac) :
-    efac(_efac),
-    z3(efac),
-    smt (z3)
-    {}
+      efac(_efac), z3(efac), smt (z3) {}
+
+    SMTUtils (ExprFactory& _efac, unsigned _to) :
+      efac(_efac), z3(efac), smt (z3, _to) {}
 
     Expr getModel(Expr v)
     {
@@ -324,6 +324,11 @@ namespace ufo
         return "Real";
       else if (bind::isBoolConst(var))
         return "Bool";
+      else if (bind::isAdtConst(var))
+      {
+        string str = lexical_cast<string>(var->last()->last());
+        return str.substr(1, str.length()-2);
+      }
       else if (bind::isConst<ARRAY_TY> (var))
       {
         Expr name = mkTerm<string> ("", var->getFactory());

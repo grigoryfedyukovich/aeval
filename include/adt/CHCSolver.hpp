@@ -253,11 +253,8 @@ namespace ufo
     //       outs() << *a << "\n";
     //     }
     //     outs() << "goal: " << *goal << "\n";
-
-    vector<int> basenums, indnums; // dummies
-    // res = solve(basenums, indnums);
     ADTSolver sol (goal, assumptions, constructors);
-    sol.solve(basenums, indnums);
+    sol.solve();
     //   }
       // if (a.isQuery) {
       //     outs() << "In query rules \n";

@@ -2329,9 +2329,11 @@ namespace expr
         if (isOp<NumericOp>(v)) return typeOf(v->left());
         if (isOpX<ITE>(v)) return typeOf(v->last());
 
-        if (isOpX<STORE>(v)) return sort::arrayTy(typeOf(v->right()), typeOf(v->last()));
-        if (isOpX<SELECT>(v)) return typeOf(v->right());
+        if (isOpX<STORE>(v)) return typeOf(v->left());
+        if (isOpX<SELECT>(v))  return typeOf(v->left())->right();
         if (isOpX<CONST_ARRAY>(v)) return sort::arrayTy(v->left(), typeOf(v->right()));
+
+        if (isAdtConst(v)) return v->last()->last();
 
 //        std::cerr << "WARNING: could not infer type of: " << *v << "\n";
 //        assert (0 && "Unreachable");
@@ -2748,12 +2750,29 @@ namespace expr
 
     struct RAVALLM: public std::unary_function<Expr,VisitAction>
     {
-      ExprMap& m;
+      ExprMap* m;
 
-      RAVALLM (ExprMap& _m) : m(_m) { }
+      RAVALLM (ExprMap* _m) : m(_m) { }
       VisitAction operator() (Expr exp) const
       {
-        if (m[exp] != NULL) return VisitAction::changeTo (m[exp]);
+        auto it = m->find(exp);
+        if (it != m->end()) return VisitAction::changeTo (it->second);
+        return VisitAction::doKids ();
+      }
+    };
+
+    struct RAVALLMR: public std::unary_function<Expr,VisitAction>
+    {
+      ExprMap* m;
+
+      RAVALLMR (ExprMap* _m) : m(_m) { }
+      VisitAction operator() (Expr exp) const
+      {
+        auto it = m->begin();
+        while (it != m->end())
+          if (it->second == exp)
+            return VisitAction::changeTo (it->first);
+          else ++it;
         return VisitAction::doKids ();
       }
     };
@@ -2990,15 +3009,36 @@ namespace expr
   inline Expr replaceAll (Expr exp, ExprVector& s, ExprVector& t)
   {
     assert(s.size() == t.size());
+    if (s.empty()) return exp;
     RAVALL rav(&s, &t);
-    return dagVisit (rav, exp);
+    Expr tmp = dagVisit (rav, exp);
+    if (tmp == exp) return exp;
+    else return replaceAll(tmp, s, t);
   }
 
   // pairwise replacing
-  inline Expr replaceAll (Expr exp, ExprMap& m)
+  inline Expr replaceAll (Expr exp, ExprMap& m, bool rec = true, int iter = 0)
   {
-    RAVALLM rav(m);
-    return dagVisit (rav, exp);
+    if (iter == 1000)
+    {
+      std::cout << "WARNING: possible inifinite recursion in replaceAll\n";
+      return exp;
+    }
+    if (m.empty()) return exp;
+    RAVALLM rav(&m);
+    Expr tmp = dagVisit (rav, exp);
+    if (tmp == exp || !rec) return exp;
+    else return replaceAll(tmp, m, rec, iter+1);
+  }
+
+  // pairwise replacing
+  inline Expr replaceAllRev (Expr exp, ExprMap& m)
+  {
+    if (m.empty()) return exp;
+    RAVALLMR rav(&m);
+    Expr tmp = dagVisit (rav, exp);
+    if (tmp == exp) return exp;
+    else return replaceAllRev(tmp, m);
   }
 
   /** Replace all occurrences of s by t while simplifying the result */

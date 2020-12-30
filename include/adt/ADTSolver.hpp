@@ -34,15 +34,50 @@ namespace ufo
     bool verbose;
     int sp = 2;
     int glob_ind = 0;
+    bool useZ3 = false;
+    unsigned to;
     ExprVector blockedAssms;
 
     public:
 
-    ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors,
-              int _maxDepth = 5, int _maxGrow = 3, int _mergingIts = 3, int _earlySplit = 1, bool _verbose = true) :
-        goal(_goal), assumptions(_assumptions), constructors(_constructors),
-        efac(_goal->getFactory()), u(_goal->getFactory()), maxDepth(_maxDepth), maxGrow(_maxGrow), mergingIts(_mergingIts),
-        earlySplit(_earlySplit), verbose(_verbose) {}
+    ADTSolver(Expr _goal, ExprVector& _assumptions, ExprVector& _constructors, int _maxDepth = 5, int _maxGrow = 3, int _mergingIts = 3, int _earlySplit = 1, bool _verbose = false, bool _useZ3 = true, unsigned _to = 1000) :
+        goal(_goal), assumptions(_assumptions), constructors(_constructors), efac(_goal->getFactory()), u(_goal->getFactory(), _to), maxDepth(_maxDepth), maxGrow(_maxGrow), mergingIts(_mergingIts), earlySplit(_earlySplit), verbose(_verbose), useZ3(_useZ3), to (_to)
+    {
+      // for convenience, rename assumptions (to have unique quantified variables)
+      renameAssumptions();
+    }
+
+    void renameAssumptions()
+    {
+      int c = 0;
+      ExprSet allVars;
+      filter(conjoin(assumptions, efac), bind::IsConst (), inserter(allVars, allVars.begin()));
+
+      for (int i = 0; i < assumptions.size(); i++)
+      {
+        map<Expr, ExprVector> vars;
+        getQVars(assumptions[i], vars);
+        ExprMap replFls;
+        for (auto & e : vars)
+        {
+          ExprMap repls;
+          for (int j = 0; j < e.first->arity() - 1; j++)
+          {
+            Expr v = bind::fapp(e.first->arg(j));
+            Expr newVar;
+            while (true)
+            {
+              newVar = cloneVar(v, mkTerm<string> ("_qv_" + to_string(++c), efac));
+              if (find(allVars.begin(), allVars.end(), newVar) == allVars.end()) break;
+            }
+            repls[v->left()->left()] = newVar->left()->left();
+          }
+          Expr newFla = replaceAll(e.first, replFls);
+          replFls[e.first] = replaceAll(newFla, repls);
+        }
+        assumptions[i] = replaceAll(assumptions[i], replFls);
+      }
+    }
 
     bool simplifyGoal()
     {
@@ -66,34 +101,43 @@ namespace ufo
       return false;
     }
 
-    Expr eliminateEqualities(Expr goal)
+    bool findAssmOccurs(Expr e, Expr eq)
+    {
+      for (auto a : assumptions)
+      {
+        if (a == eq) continue;
+        if (contains(a, e)) return true;
+      }
+      return false;
+    }
+
+    void eliminateEqualities(Expr& goal)
     {
       ExprMap allrepls;
       for (auto it = assumptions.begin(); it != assumptions.end();)
       {
         Expr &a = *it;
-        if (isOpX<EQ>(a) && allrepls[a->left()] == NULL &&
-            isOpX<FAPP> (a->left()) && a->left()->arity () == 1 &&
-            isOpX<FAPP> (a->right()) && a->right()->arity () == 1)
+        if (isOpX<EQ>(a))
         {
-          if (verbose) outs () << string(sp, ' ') << "replacing   " << *a->left()
-                               << "   by   " << * a->right() << "   everywhere\n";
-          allrepls[a->left()] = a->right();
-          it = assumptions.erase(it);
+          ExprMap repls;
+          if (findAssmOccurs(a->left(), a) > 0 && a->left()->arity() == 1
+              && !contains (a->right(), a->left()))
+            repls[a->left()] = a->right();
+          else if (findAssmOccurs(a->right(), a) > 0 && a->right()->arity() == 1
+              && !contains (a->left(), a->right()))
+            repls[a->right()] = a->left();
+
+          if (repls.empty()) ++it;
+          else
+          {
+            it = assumptions.erase(it);
+            for (int i = 0; i < assumptions.size(); i++)
+              assumptions[i] = replaceAll(assumptions[i], repls);
+            goal = replaceAll(goal, repls);
+          }
         }
         else ++it;
       }
-      if (allrepls.size() == 0) return goal;
-
-      for (auto & a : assumptions)
-      {
-        if (!isOpX<FORALL>(a)) // TODO: support FORALLs properly
-        {
-          a = replaceAll(a, allrepls);
-        }
-      }
-
-      return replaceAll(goal, allrepls);
     }
 
     bool mergeAssumptions(int bnd = -1)
@@ -612,18 +656,20 @@ namespace ufo
                 ExprMap substs;
                 substs[assm->right()] = assm->left();
                 substs[assm->left()] = assm->right();
+                Expr tmp = replaceAll(a, substs, false);
 
-                Expr tmp = replaceAll(a, substs);
                 if (u.implies(assm, mk<EQ>(tmp, a)))
-                result.push_back(replaceAll(subgoal, a, tmp));   // very specific heuristic; works for multisets
-                return true;
+                {
+                  result.push_back(replaceAll(subgoal, a, tmp));   // very specific heuristic; works for multisets
+                  return true;
+                }
 
                 if (a->last() != a->left()->last())
                 {
                   substs[a->last()] = a->left()->last();
                   substs[a->left()->last()] = a->last();
                 }
-                result.push_back(replaceAll(subgoal, a, replaceAll(a, substs)));
+                result.push_back(replaceAll(subgoal, a, replaceAll(a, substs, false)));
                 return true;
               }
             }
@@ -670,26 +716,6 @@ namespace ufo
         }
       }
       // if nothing helped, return NULL -- it will be used for backtracking
-      return false;
-    }
-
-    // this method is used when a strategy is specified from the command line
-    bool tryStrategy(Expr subgoal, vector<int>& strat)
-    {
-      Expr subgoal_copy = subgoal;
-      for (int i : strat)
-      {
-        assert (i < assumptions.size());
-        ExprVector result;
-        if (useAssumption(subgoal_copy, assumptions[i], result)) {
-          for (auto & it : result) {
-            subgoal_copy = it;
-            if (subgoal_copy == subgoal) break;
-
-            if (u.isEquiv(subgoal_copy, mk<TRUE>(efac))) return true;
-          }
-        }
-      }
       return false;
     }
 
@@ -743,7 +769,7 @@ namespace ufo
         uniquePushConj(subgoal->left(), assumptions);
         if (assumptions.size() != assumptionsTmp.size())
         {
-          subgoal = eliminateEqualities(subgoal);
+          eliminateEqualities(subgoal);
           toRem = true;
           if (mergeAssumptions())
           {
@@ -954,7 +980,7 @@ namespace ufo
       auto assumptionsTmp = assumptions;
       uniquePushConj(mkNeg(subgoal), assumptions);
       bool res = false;
-      subgoal = eliminateEqualities(subgoal);
+      eliminateEqualities(subgoal);
       if (mergeAssumptions(1))
       {
         res = true;
@@ -991,7 +1017,7 @@ namespace ufo
       auto assumptionsTmp = assumptions;
 
       uniquePushConj(mkNeg(*spl), assumptions);
-      subgoal = eliminateEqualities(subgoal);
+      eliminateEqualities(subgoal);
       if (mergeAssumptions())
       {
         assumptions = assumptionsTmp;
@@ -1154,7 +1180,7 @@ namespace ufo
         part++;
 
         uniquePushConj(s, assumptions);
-        subgoal = eliminateEqualities(subgoal);
+        eliminateEqualities(subgoal);
         if (mergeAssumptions())
         {
           assumptions = assumptionsTmp;
@@ -1220,7 +1246,7 @@ namespace ufo
                 if (indConstructors[type] != NULL && indConstructors[type] != a)
                 {
                   outs () << "Several inductive constructors are not supported\n";
-                  exit(1);
+                  exit(0);
                 }
                 indConstructors[type] = a;
               }
@@ -1230,7 +1256,7 @@ namespace ufo
               if (baseConstructors[type] != NULL && baseConstructors[type] != a)
               {
                 outs () << "Several base constructors are not supported\n";
-                exit(1);
+                exit(0);
               }
               baseConstructors[type] = a;
             }
@@ -1300,7 +1326,7 @@ namespace ufo
       outs () << string(sp, ' ') << "}\n";
     }
 
-    bool induction(int num, vector<int>& basenums, vector<int>& indnums)
+    bool induction(int num)
     {
       assert(num < goal->arity() - 1);
       Expr typeDecl = goal->arg(num);
@@ -1330,25 +1356,30 @@ namespace ufo
       }
 
       if (verbose) outs() << "\nBase case:       " << *baseSubgoal << "\n{\n";
-      bool baseres = false;
-      baseSubgoal = eliminateEqualities(baseSubgoal);
-      if (mergeAssumptions())
+      bool baseres = simpleSMTcheck(baseSubgoal);
+      if (baseres)
       {
         if (verbose) outs() << "  proven trivially\n";
-        baseres = true;
-        assumptions = assumptionsTmp;
       }
       else
       {
-        splitAssumptions();
-        printAssumptions();
+        eliminateEqualities(baseSubgoal);
+        if (mergeAssumptions())
+        {
+          if (verbose) outs() << "  proven trivially\n";
+          baseres = true;
+          assumptions = assumptionsTmp;
+        }
+        else
+        {
+          splitAssumptions();
+          printAssumptions();
 
-        rewriteHistory.clear();
-        rewriteSequence.clear();
+          rewriteHistory.clear();
+          rewriteSequence.clear();
 
-        baseres = basenums.empty() ?
-                rewriteAssumptions(baseSubgoal) :
-                tryStrategy(baseSubgoal, basenums);
+          baseres = rewriteAssumptions(baseSubgoal);
+        }
       }
 
       if (verbose) outs () << "}\n";
@@ -1365,8 +1396,8 @@ namespace ufo
           if (verbose) outs () << "\nProceeding to nested induction\n";
           newArgs.push_back(replaceAll(goal->last(), typeDecl, baseConstructor));
           Expr newGoal = mknary<FORALL>(newArgs);
-          ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxGrow, earlySplit);
-          if (!sol.solve (basenums, indnums)) return false;
+          ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxGrow, earlySplit, to);
+          if (!sol.solve ()) return false;
           if (verbose) outs () << "\nReturning to the outer induction\n\n";
         }
         else
@@ -1454,21 +1485,30 @@ namespace ufo
         indSubgoal = indSubgoal->right();
       }
 
-      indSubgoal = eliminateEqualities(indSubgoal);
+      eliminateEqualities(indSubgoal);
       if (mergeAssumptions()) return true;
 
       splitAssumptions();
       if (verbose) outs() << "Inductive step:  " << * indSubgoal << "\n{\n";
-      printAssumptions();
-
       rewriteHistory.clear();
       rewriteSequence.clear();
 
-      bool indres = indnums.empty() ?
-               rewriteAssumptions(indSubgoal) :
-               tryStrategy(indSubgoal, indnums);
-      if (verbose)  outs () << "}\n";
-      if (indres) return true;
+      bool indres = simpleSMTcheck(indSubgoal);
+      if (indres)
+      {
+        if (verbose) outs() << "  proven trivially by Z3\n}\n";
+        return true;
+      }
+      else
+      {
+        printAssumptions();
+        indres = rewriteAssumptions(indSubgoal);
+        if (indres)
+        {
+          if (verbose) outs () << "}\n";
+          return true;
+        }
+      }
 
       ExprVector newArgs;
       for (int i = 0; i < goal->arity() - 1; i++)
@@ -1482,14 +1522,13 @@ namespace ufo
         if (verbose) outs () << "\nProceeding to nested induction\n";
         newArgs.push_back(replaceAll(goal->last(), bind::fapp(typeDecl), indConsApp));
         Expr newGoal = mknary<FORALL>(newArgs);
-        ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxGrow, earlySplit);
-        if (sol.solve (basenums, indnums)) return true;
+        ADTSolver sol (newGoal, assumptions, constructors, maxDepth, maxGrow, earlySplit, to);
+        if (sol.solve ()) return true;
         if (verbose) outs () << "Nested induction unsuccessful\n\n";
       }
 
-//      // last resort so far
+      // last resort so far
       return doCaseSplitting(indSubgoal);
-      return false;
     }
 
     bool doCaseSplitting(Expr goal)
@@ -1525,44 +1564,53 @@ namespace ufo
           if (d != NULL)
           {
             assert(isOpX<EQ>(d));
-            printAssumptions();
-            if (verbose) outs () << "case splitting for " << *d->left() << ":\n";
-            if (verbose) outs () << "  case " << *d << "\n{\n";
+            if (verbose) outs () << string(sp, ' ') << "case splitting for " << *d->left() << ":\n";
+            if (verbose) outs () << string(sp, ' ') << "case " << *d << "\n" << string(sp, ' ') << "{\n";
             auto assumptionsTmp = assumptions;
             auto rewriteHistoryTmp = rewriteHistory;
             auto rewriteSequenceTmp = rewriteSequence;
+            auto goalTmp = goal;
 
+            goal = replaceAll(goal, d->left(), d->right());
             for (int j = 0; j < assumptions.size(); j++)
             {
               assumptions[j] = simplifyBool(replaceAll(assumptions[j], pre, mk<TRUE>(efac)));
               assumptions[j] = replaceAll(assumptions[j], d->left(), d->right());
             }
 
-            goal = eliminateEqualities(goal);
+            eliminateEqualities(goal);
             mergeAssumptions(1);
+            sp += 2;
             printAssumptions();
-            bool partiallyDone = rewriteAssumptions(replaceAll(goal, d->left(), d->right()));
+            if (verbose) outs () << string(sp, ' ') << "current subgoal: " << *goal << "\n";
+            bool partiallyDone = rewriteAssumptions(goal);
+            sp -= 2;
 
             assumptions = assumptionsTmp;
             rewriteHistory = rewriteHistoryTmp;
             rewriteSequence = rewriteSequenceTmp;
+            goal = goalTmp;
 
             if (!partiallyDone) continue;
-            if (verbose) outs() << "successful\n}\n";
+            if (verbose) outs() << string(sp, ' ') << "}\n";
 
             pre = mkNeg(pre);
             assert(isOpX<EQ>(pre) && pre->left() == d->left());
-            if (verbose) outs () << "  case " << *pre << "\n{\n";
+            if (verbose) outs () << string(sp, ' ') << "case " << *pre << "\n" << string(sp, ' ') << "{\n";
 
+            goal = replaceAll(goal, pre->left(), pre->right());
             for (int j = 0; j < assumptions.size(); j++)
             {
               assumptions[j] = simplifyBool(replaceAll(assumptions[j], pre, mk<TRUE>(efac)));
               assumptions[j] = replaceAll(assumptions[j], pre->left(), pre->right());
             }
-            goal = eliminateEqualities(goal);
+            eliminateEqualities(goal);
             mergeAssumptions(1);
+            sp += 2;
             printAssumptions();
-            bool done = rewriteAssumptions(replaceAll(goal, pre->left(), pre->right()));
+            if (verbose) outs () << string(sp, ' ') << "current subgoal: " << *goal << "\n";
+            bool done = rewriteAssumptions(goal);
+            sp -= 2;
 
             assumptions = assumptionsTmp;
             rewriteHistory = rewriteHistoryTmp;
@@ -1570,7 +1618,7 @@ namespace ufo
 
             if (done)
             {
-              if (verbose) outs() << "successful\n}\n";
+              if (verbose) outs() << string(sp, ' ') << "\n}\n";
               return true;
             }
           }
@@ -1627,9 +1675,15 @@ namespace ufo
 
     bool solveNoind(int rounds = 2)
     {
+      if (simpleSMTcheck(goal))
+      {
+        outs () << "Proved\n";
+        return true;
+      }
       auto assumptionsTmp = assumptions;
-      goal = eliminateEqualities(goal);
+      eliminateEqualities(goal);
       mergeAssumptions(rounds);
+      eliminateEqualities(goal);
       printAssumptions();
       if (verbose) outs () << "=====\n" << *goal << "\n\n\n";
       bool res = rewriteAssumptions(goal);
@@ -1657,13 +1711,12 @@ namespace ufo
         if (verbose) outs () << "\nProving by induction\n";
         goal = createQuantifiedFormula(mk<IMPL>(conjoin(qFreeAssms, efac), goal), constructors);
 
-        vector<int> basenums, indnums; // dummies
-        res = solve(basenums, indnums);
+        res = solve();
       }
       return res;
     }
 
-    bool solve(vector<int>& basenums, vector<int>& indnums)
+    bool solve()
     {
       unfoldGoal();
       rewriteHistory.push_back(goal);
@@ -1691,7 +1744,7 @@ namespace ufo
         Expr type = goal->arg(i)->last();
         if (baseConstructors[type] != NULL && indConstructors[type] != NULL)
         {
-          if (induction(i, basenums, indnums))
+          if (induction(i))
           {
             if (verbose) outs () << "\nProved\n";
             return true;
@@ -1703,39 +1756,20 @@ namespace ufo
           }
         }
       }
+      outs () << "Unknown\n";
       return false;
+    }
+
+    bool simpleSMTcheck(Expr goal)
+    {
+      if (!useZ3) return false;
+      return u.implies(conjoin(assumptions, efac), goal);
     }
   };
 
-  static inline void getNums(vector<int>& nums, char * str)
+  void adtSolve(EZ3& z3, Expr s, int maxDepth,
+                int maxGrow, int mergingIts, int earlySplit, bool verbose, int useZ3, int to)
   {
-    if (str == NULL) return;
-    int len = strlen(str);
-    char* pch = strchr(str, ',');
-    int pos1 = 0;
-    int pos2 = 0;
-    while (pch != NULL)
-    {
-      pos2 = pch - str;
-      char* substr = (char*)malloc(pos2 - pos1);
-      strncpy(substr, str + pos1, pos2 - pos1);
-      nums.push_back(atoi(substr));
-      pch = strchr(pch + 1, ',');
-      pos1 = pos2 + 1;
-    }
-    if (pos1 == len) return;
-    char* substr = (char*)malloc(len - pos1);
-    strncpy(substr, str + pos1, len - pos1);
-    nums.push_back(atoi(substr));
-  }
-
-  void adtSolve(EZ3& z3, Expr s, char* basecheck, char *indcheck, int maxDepth,
-                int maxGrow, int mergingIts, int earlySplit, bool verbose)
-  {
-    vector<int> basenums;
-    vector<int> indnums;
-    getNums(basenums, basecheck);
-    getNums(indnums, indcheck);
     ExprVector constructors;
     for (auto & a : z3.getAdtConstructors()) constructors.push_back(regularizeQF(a));
 
@@ -1763,8 +1797,8 @@ namespace ufo
       return;
     }
 
-    ADTSolver sol (goal, assumptions, constructors, maxDepth, maxGrow, mergingIts, earlySplit, verbose);
-    if (isOpX<FORALL>(goal)) sol.solve(basenums, indnums);
+    ADTSolver sol (goal, assumptions, constructors, maxDepth, maxGrow, mergingIts, earlySplit, verbose, useZ3, to);
+    if (isOpX<FORALL>(goal)) sol.solve();
     else sol.solveNoind();
   }
 }

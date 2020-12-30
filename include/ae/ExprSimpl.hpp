@@ -1799,6 +1799,7 @@ namespace ufo
 
   inline static Expr cloneVar(Expr var, Expr new_name) // ... and give a new_name to the clone
   {
+//    return replaceAll(var, var->left()->left(), new_name);
     if (bind::isIntConst(var))
       return bind::intConst(new_name);
     else if (bind::isRealConst(var))
@@ -1807,8 +1808,8 @@ namespace ufo
       return bind::boolConst(new_name);
     else if (bind::isConst<ARRAY_TY> (var))
       return bind::mkConst(new_name, mk<ARRAY_TY> (
-             mk<INT_TY> (new_name->getFactory()),
-             mk<INT_TY> (new_name->getFactory()))); // GF: currently, only Arrays over Ints
+             var->left()->right()->left(),
+             var->left()->right()->right()));
     else if (bind::isAdtConst(var))
     {
       ExprVector type;
