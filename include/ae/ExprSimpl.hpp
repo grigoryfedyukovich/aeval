@@ -3973,6 +3973,8 @@ namespace ufo
         it = vars.erase(it);
       else
         ++it;
+    if (vars.size() == 0)
+      return def;
     return createQuantifiedFormulaRestr(def, vars);
   }
 

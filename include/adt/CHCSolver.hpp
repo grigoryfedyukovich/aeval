@@ -34,10 +34,6 @@ namespace ufo
       adts.insert(a->last());
     }
 
-    for (auto & a : ruleManager.chcs) {
-      
-    }
-
     for (auto & decl: ruleManager.decls) {
       outs () << "decl " << *decl <<"\n";
       for (auto & a : ruleManager.chcs) {
@@ -116,7 +112,7 @@ namespace ufo
         if (a.body->arity() > 1) {
           for(int j = 0; j < a.body->arity(); ++j) {
             if (isOpX<NEG>(a.body->arg(j))) {
-              cnj.push_back(mkNeg(a.body->arg(j)));
+              destination = mkNeg(a.body->arg(j));
             }
             else {
               cnj.push_back(a.body->arg(j));
@@ -124,12 +120,14 @@ namespace ufo
           }
         }
         else {
-          cnj.push_back(mkNeg(a.body));
+          destination = mkNeg(a.body);
         }
-        goal = (createQuantifiedFormula(replaceAll(conjoin(cnj, efac), matching), constructors));
+        goal = (createQuantifiedFormula
+          (replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching), constructors));
       }
       else {
         ExprVector cnj;
+        ExprMap matching;
         for (int i = 0; i < a.srcRelations.size(); i++) {
           if (decls.find(a.srcRelations[i]) != decls.end()) {
             size_t ind = aux[a.srcRelations[i]->left()];
@@ -146,6 +144,7 @@ namespace ufo
             }
             Expr rel = bind::fdecl (efac.mkTerm(a.srcRelations[i]->left()->op()), types);
             Expr app = bind::fapp (rel, newVars);
+            // matching[a.srcVars[i][ind]] = app;
             Expr def = mk<EQ>(app, a.srcVars[i][ind]);
             cnj.push_back(def);
           }
@@ -154,7 +153,22 @@ namespace ufo
             cnj.push_back(tmp);
           }
         }
-        cnj.push_back(a.body);
+        for(int j = 0; j < a.body->arity(); ++j) {
+          if (isOpX<EQ>(a.body->arg(j))) {
+            Expr body_elem = a.body->arg(j);
+            if (body_elem->right()->arity() == 1) {
+              matching[body_elem->right()] = body_elem->left();
+            }
+            else {
+              cnj.push_back(a.body->arg(j));
+            }
+            outs() << "HERE:\n" << *a.body->arg(j) << "\n" << a.body->arg(j)->left()->arity() << " " << a.body->arg(j)->right()->arity() << "\n";
+          }
+          else {
+            cnj.push_back(a.body->arg(j));
+          }
+        }
+        // cnj.push_back(a.body);
         Expr destination = bind::fapp (a.dstRelation, a.dstVars);
         ExprVector vars = a.dstVars;
         if (decls.find(a.dstRelation) != decls.end()) {
@@ -172,99 +186,27 @@ namespace ufo
           Expr baseApp = bind::fapp (rel, newVars);
           destination = mk<EQ>(baseApp, a.dstVars[ind]);
         }
-        assumptions.push_back(createQuantifiedFormula(
-        mk<IMPL>(conjoin(cnj, efac), destination), constructors));
+        Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
+        outs() << "First asmpt: " << *asmpt << "\n";
+        asmpt = replaceAll(asmpt, matching);
+        outs() << "Second asmpt " << *asmpt << "\n";
+        asmpt = simplifyArithm(asmpt);
+        asmpt = simplifyBool(asmpt);
+        outs() << "NEW assumptions " << *asmpt << " " << asmpt->arity() << "\n";
+        if (asmpt->arity() > 0) {
+          asmpt = createQuantifiedFormula(asmpt, constructors);
+        }
+        assumptions.push_back(asmpt);
       }
     }
     outs() << "print assumptions: " << "\n";
     for (auto & a : assumptions) {
       outs() << *a << "\n";
     }
+    outs() << "goal:\n" << *goal << "\n";
 
-    // for (auto & a : ruleManager.chcs) {
-    //   if (aux[a.dstRelation->left()] != 0) {
-    //     // Expr goal = conjoin(spec, efac);
-    //     // Expr goal;
-    //     ExprMap matching;
-    //     ExprVector newAssumptions = assumptions;
-    //     size_t ind = aux[a.dstRelation->left()];
-    //     Expr e = replace_vars[a.dstRelation->left()];
-    //     matching[e->left()] = a.dstVars[ind];
-    //     for(int j = 0; j < a.dstRelation->arity(); ++j) {
-    //       if (j != ind) {
-    //         matching[e->right()->arg(j)] = a.dstVars[j];
-    //       }
-    //     }
-    //     newAssumptions.push_back(replaceAll(e, matching));
-    //     // for (int i = 0; i < spec_ids.size(); ++i) {
-    //     //   Expr e = goal_assumptions[spec_ids[i]];
-    //     //   matching[e->right()] = a.dstVars[ind-1];
-    //     //   for(int j = 1; j < a.dstRelation->arity() - 1; ++j) {
-    //     //     if (j != ind) {
-    //     //       matching[e->left()->arg(j)] = a.dstVars[j-1];
-    //     //     }
-    //     //   }
-    //     //   newAssumptions.push_back(replaceAll(e, matching));
-    //     // }
-    //     for (auto & a : goal_assumptions) {
-    //       newAssumptions.push_back(replaceAll(a, matching));
-    //     }
-    //     ExprVector replaced_spec;
-    //     for (auto &s : spec) {
-    //       replaced_spec.push_back(replaceAll(s, matching));
-    //     }
-    //     Expr goal = conjoin(replaced_spec, efac);
-    //     for(int j = 0; j < a.body->arity(); ++j) {
-    //       newAssumptions.push_back((a.body->arg(j)));
-    //     }
-    //     if (a.isInductive) {
-    //       matching.clear();
-    //       replaced_spec.clear();
-    //       size_t ind = aux[a.srcRelations[0]->left()];
-    //       Expr e = replace_vars[a.dstRelation->left()];
-    //       matching[e->left()] = a.srcVars[0][ind];
-    //       for(int j = 0; j < a.dstRelation->arity(); ++j) {
-    //         if (j != ind) {
-    //           matching[e->right()->arg(j)] = a.srcVars[0][j];
-    //         }
-    //       }
-    //       newAssumptions.push_back(replaceAll(e, matching));
-    //       for (auto &s : spec) {
-    //         replaced_spec.push_back(replaceAll(s, matching));
-    //       }
-    //       newAssumptions.push_back(conjoin(replaced_spec, efac));
-    //       // Expr tmp = conjoin(spec, efac);
-    //       // outs() << "tmp: " << *tmp << "\n";
-    //       // for (int i = 0; i < spec_ids.size(); ++i) {
-    //       //   Expr e = spec[spec_ids[i]];
-    //       //   matching[e->right()] = a.srcVars[0][ind-1];
-    //       //   for(int j = 1; j < a.srcRelations[0]->arity() - 1; ++j) {
-    //       //     if (j != ind) {
-    //       //       matching[e->left()->arg(j)] = a.srcVars[0][j-1];
-    //       //     }
-    //       //   }
-    //       //   tmp = replaceAll(tmp, matching);
-    //       //   newAssumptions.push_back(tmp);
-    //       // }
-    //     }
-
-    //     outs() << "print new assumptions: " << "\n";
-    //     for (auto & a : newAssumptions) {
-    //       outs() << *a << "\n";
-    //     }
-    //     outs() << "goal: " << *goal << "\n";
     ADTSolver sol (goal, assumptions, constructors);
     sol.solve();
-    //   }
-      // if (a.isQuery) {
-      //     outs() << "In query rules \n";
-      //     for (int i = 0; i < a.srcRelations.size(); ++i) {
-      //       outs() << *a.srcRelations[i] << "\n";
-      //       for (int j = 0; j < a.srcVars[i].size(); ++j) {
-      //         outs() << *a.srcVars[i][j] << "\n";
-      //       }
-      //     }
-      //   }
   }
 }
 
