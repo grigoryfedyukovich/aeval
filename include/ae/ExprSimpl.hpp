@@ -3932,8 +3932,22 @@ namespace ufo
 
   inline static Expr normalizeArithm (Expr exp)
   {
+    ExprSet complex;
+    findComplexNumerics(exp, complex);
+    ExprMap repls;
+    ExprMap replsRev;
+    for (auto & a : complex)
+    {
+      Expr repl = bind::intConst(mkTerm<string>
+        ("__repl_" + lexical_cast<string>(repls.size()), exp->getFactory()));
+      repls[a] = repl;
+      replsRev[repl] = a;
+    }
+    exp = replaceAll(exp, repls);
     RW<NormalizeArithmExpr> rw(new NormalizeArithmExpr(exp->getFactory()));
-    return dagVisit (rw, exp);
+    exp = dagVisit (rw, exp);
+    exp = replaceAll(exp, replsRev);
+    return exp;
   }
 
   Expr static normalizeImplHlp (Expr e, ExprSet& lhs)
@@ -3955,8 +3969,9 @@ namespace ufo
     return rhs;
   }
 
-  Expr static createQuantifiedFormulaRestr(Expr def, ExprVector& vars, bool forall = true)
+  Expr static createQuantifiedFormulaRestr (Expr def, ExprVector& vars, bool forall = true)
   {
+    if (vars.empty()) return def;
     ExprVector args;
     for (auto & a : vars) args.push_back(a->last());
     args.push_back(def);
@@ -3964,7 +3979,7 @@ namespace ufo
     else return mknary<EXISTS>(args);
   }
 
-  Expr static createQuantifiedFormula(Expr def, ExprVector& toAvoid)
+  Expr static createQuantifiedFormula (Expr def, ExprVector& toAvoid)
   {
     ExprVector vars;
     filter(def, bind::IsConst (), inserter(vars, vars.begin()));
