@@ -1173,6 +1173,9 @@ namespace ufo
         if (isOpX<FALSE>(exp->right()))
           return mkNeg(exp->left());
 
+        if (isOpX<TRUE>(exp->left()))
+          return exp->right();
+
 //        return simplifyBool(mk<OR>(
 //                 mkNeg(exp->left()),
 //                 exp->right()));

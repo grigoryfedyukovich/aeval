@@ -3,11 +3,16 @@
 
 #include "deep/HornNonlin.hpp"
 #include "ADTSolver.hpp"
+#include <algorithm>
 
 using namespace std;
 using namespace boost;
 namespace ufo
 {
+  bool isConst(Expr expr) {
+    return bind::isAdtConst(expr) || bind::isBoolConst(expr) || bind::isIntConst(expr) || bind::isRealConst(expr);
+  }
+
   void chcSolve(char * smt_file)
   {
     ExprFactory efac;
@@ -35,7 +40,6 @@ namespace ufo
     }
 
     for (auto & decl: ruleManager.decls) {
-      outs () << "decl " << *decl <<"\n";
       for (auto & a : ruleManager.chcs) {
         if (a.dstRelation == decl) {
           size_t vars_size = a.dstRelation->arity();
@@ -80,7 +84,32 @@ namespace ufo
         Expr destination;
         ExprVector cnj;
         ExprMap matching;
-        ExprVector args;
+        ExprMap body_matching;
+        if (a.body->arity() > 1) {
+          for(int j = 0; j < a.body->arity(); ++j) {
+            if (isOpX<NEG>(a.body->arg(j))) {
+              destination = mkNeg(a.body->arg(j));
+            }
+            // else if (isOpX<EQ>(a.body->arg(j))) {
+            //   Expr body_elem = a.body->arg(j);
+            //   if (body_elem->left()->arity() == 1) {
+            //     body_matching[body_elem->left()] = body_elem->right();
+            //     outs() << "body matching left " << *body_elem->left() << *body_elem->right() << "\n";
+            //   }
+            //   else if (body_elem->right()->arity() == 1) {
+            //     body_matching[body_elem->right()] = body_elem->left();
+            //     outs() << "body matching right " << *body_elem->right() << *body_elem->left() << "\n";
+            //   }
+            //   cnj.push_back(a.body->arg(j));
+            // }
+            else {
+              cnj.push_back(a.body->arg(j));
+            }
+          }
+        }
+        else {
+          destination = mkNeg(a.body);
+        }
         for (int i = 0; i < a.srcRelations.size(); i++) {
           if (decls.find(a.srcRelations[i]) != decls.end()) {
             size_t ind = aux[a.srcRelations[i]->left()];
@@ -97,7 +126,6 @@ namespace ufo
             Expr rel = bind::fdecl (efac.mkTerm(a.srcRelations[i]->left()->op()), types);
             Expr app = bind::fapp (rel, newVars);
             matching[a.srcVars[i][ind]] = app;
-            args.push_back(a.srcVars[i][ind]);
             // Expr def = mk<EQ>(a.srcVars[i][ind], app);
             // cnj.push_back(def);
             // replace_vars[a.srcRelations[i]->left()] = def;
@@ -109,21 +137,41 @@ namespace ufo
              cnj.push_back(tmp);
           }
         }
-        if (a.body->arity() > 1) {
-          for(int j = 0; j < a.body->arity(); ++j) {
-            if (isOpX<NEG>(a.body->arg(j))) {
-              destination = mkNeg(a.body->arg(j));
-            }
-            else {
-              cnj.push_back(a.body->arg(j));
+        outs() << *mk<IMPL>(conjoin(cnj, efac), destination) << "\n";
+        outs() << *(replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching)) << "\n";
+
+        goal = replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching);
+        matching.clear();
+        Expr left = goal->left();
+        outs() << "left: " << *left << "\n";
+        if (isOpX<AND>(left)) {
+          for (int i = 0; i < left->arity(); ++i) {
+            if (isOpX<EQ>(left->arg(i))) {
+              if (left->arg(i)->left()->arity() == 1) {
+                matching[left->arg(i)->left()] = left->arg(i)->right();
+              }
+              else if (left->arg(i)->right()->arity() == 1) {
+                matching[left->arg(i)->right()] = left->arg(i)->left();
+              }
             }
           }
         }
-        else {
-          destination = mkNeg(a.body);
+        else if (isOpX<EQ>(left)) {
+          if (left->left()->arity() == 1 && !isConst(left->left())) {
+            matching[left->left()] = left->right();
+            outs() << *left->left() << " " << bind::isAdtConst(left->left()) << bind::IsVar () (left->left()) << bind::IsVar () (left->right()) << "\n";
+          }
+          else if (left->right()->arity() == 1) {
+            matching[left->right()] = left->left();
+          }
         }
-        goal = (createQuantifiedFormula
-          (replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching), constructors));
+        goal = replaceAll(goal, matching);
+        outs() << "new goal: " << *goal << "\n";
+        goal = simplifyArithm(goal);
+        goal = simplifyBool(goal);
+        if (goal->arity() > 0) {
+          goal = createQuantifiedFormula(goal, constructors);
+        }
       }
       else {
         ExprVector cnj;
@@ -156,13 +204,29 @@ namespace ufo
         for(int j = 0; j < a.body->arity(); ++j) {
           if (isOpX<EQ>(a.body->arg(j))) {
             Expr body_elem = a.body->arg(j);
-            if (body_elem->right()->arity() == 1) {
+
+            if (body_elem->left()->arity() == 1 
+              && std::find(a.dstVars.begin(), a.dstVars.end(), body_elem->left()) != a.dstVars.end()) {
+              outs() << "HERE LEFT\n" << *body_elem << "\n";
+              matching[body_elem->left()] = body_elem->right();
+            }
+            else if (body_elem->right()->arity() == 1 
+              && std::find(a.dstVars.begin(), a.dstVars.end(), body_elem->right()) != a.dstVars.end()) {
+              outs() << "HERE RIGHT\n" << *body_elem << "\n";
               matching[body_elem->right()] = body_elem->left();
             }
+            // else {
+            //   cnj.push_back(a.body->arg(j));
+            // }
             else {
-              cnj.push_back(a.body->arg(j));
+              for (auto & v : a.dstVars) {
+                Expr ineq = ineqSimplifier(v, body_elem);
+                outs() << "INEQ " << *v << " " << *ineq << "\n";
+                if (ineq->left() == v) {
+                  matching[ineq->left()] = ineq->right();
+                }
+              }
             }
-            outs() << "HERE:\n" << *a.body->arg(j) << "\n" << a.body->arg(j)->left()->arity() << " " << a.body->arg(j)->right()->arity() << "\n";
           }
           else {
             cnj.push_back(a.body->arg(j));
@@ -171,8 +235,9 @@ namespace ufo
         // cnj.push_back(a.body);
         Expr destination = bind::fapp (a.dstRelation, a.dstVars);
         ExprVector vars = a.dstVars;
+        size_t ind;
         if (decls.find(a.dstRelation) != decls.end()) {
-          size_t ind = aux[a.dstRelation->left()];
+          ind = aux[a.dstRelation->left()];
           ExprVector types;
           ExprVector newVars;
           types.push_back(bind::typeOf(a.dstVars[ind]));
@@ -190,6 +255,34 @@ namespace ufo
         outs() << "First asmpt: " << *asmpt << "\n";
         asmpt = replaceAll(asmpt, matching);
         outs() << "Second asmpt " << *asmpt << "\n";
+        matching.clear();
+        Expr left = asmpt->left();
+        if (isOpX<AND>(asmpt->left())) {
+          for (int i = 0; i < left->arity(); ++i) {
+            if (isOpX<EQ>(left->arg(i))) {
+              if (left->arg(i)->left()->arity() == 1) {
+                matching[left->arg(i)->left()] = left->arg(i)->right();
+              }
+              else if (left->arg(i)->right()->arity() == 1) {
+                matching[left->arg(i)->right()] = left->arg(i)->left();
+              }
+            }
+          }
+        }
+        if (isOpX<EQ>(asmpt->left())) {
+          if (asmpt->left()->left()->arity() == 1) {
+            // Expr h = ineqSimplifier(asmpt->left()->left(), asmpt->left());
+            matching[asmpt->left()->left()] = asmpt->left()->right();
+            // outs() << *h << "\n";
+          }
+          else if (asmpt->left()->right()->arity() == 1) {
+            // Expr h = ineqSimplifier(asmpt->left()->right(), asmpt->left());
+            matching[asmpt->left()->right()] = asmpt->left()->left();
+            // outs() << *h << "\n";
+          }
+        }
+        asmpt = replaceAll(asmpt, matching);
+        outs() << "Third asmpt " << *asmpt << "\n";
         asmpt = simplifyArithm(asmpt);
         asmpt = simplifyBool(asmpt);
         outs() << "NEW assumptions " << *asmpt << " " << asmpt->arity() << "\n";
