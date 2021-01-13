@@ -257,9 +257,14 @@ namespace ufo
           if (goal->arity() > 0) {
             goal = createQuantifiedFormula(goal, constructors);
           }
+          ExprVector current_assumptions = assumptions;
+          outs() << "print assumptions: " << "\n";
+          for (auto & a : current_assumptions) {
+            outs() << *a << "\n";
+          }
           outs() << "goal:\n" << *goal << "\n";
 
-          ADTSolver sol (goal, assumptions, constructors);
+          ADTSolver sol (goal, current_assumptions, constructors);
           sol.solve();
         }
         else {
@@ -276,8 +281,14 @@ namespace ufo
           goal = replaceAll(goal, matching);
           goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
+          ExprVector current_assumptions = assumptions;
+
+          outs() << "print assumptions: " << "\n";
+          for (auto & a : current_assumptions) {
+            outs() << *a << "\n";
+          }
           outs() << "goal:\n" << *goal << "\n";
-          ADTSolver adtSol (goal, assumptions, constructors);
+          ADTSolver adtSol (goal, current_assumptions, constructors);
           adtSol.solveNoind();
         }
       }
