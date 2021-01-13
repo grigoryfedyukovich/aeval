@@ -1266,7 +1266,7 @@ namespace ufo
                 if (indConstructors[type] != NULL && indConstructors[type] != a)
                 {
                   outs () << "Several inductive constructors are not supported\n";
-                  exit(0);
+                  exit(1);
                 }
                 indConstructors[type] = a;
               }
@@ -1276,7 +1276,7 @@ namespace ufo
               if (baseConstructors[type] != NULL && baseConstructors[type] != a)
               {
                 outs () << "Several base constructors are not supported\n";
-                exit(0);
+                exit(1);
               }
               baseConstructors[type] = a;
             }

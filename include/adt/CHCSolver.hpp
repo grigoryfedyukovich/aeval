@@ -22,7 +22,7 @@ namespace ufo
     vector<HornRuleExt> &chcs;
 
   public:
-    CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, vector<HornRuleExt> &_chcs) : 
+    CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, vector<HornRuleExt> &_chcs) :
       constructors(_constructors), adts(_adts), efac(_efac), decls(_decls), chcs(_chcs) {}
 
     Expr createNewApp(HornRuleExt chc, int i, int ind) {
@@ -57,11 +57,11 @@ namespace ufo
     }
 
     void findMatchingFromBodyElement(HornRuleExt chc, Expr body_elem, ExprMap &matching) {
-      if (body_elem->left()->arity() == 1 
+      if (body_elem->left()->arity() == 1
           && std::find(chc.dstVars.begin(), chc.dstVars.end(), body_elem->left()) != chc.dstVars.end()) {
         matching[body_elem->left()] = body_elem->right();
       }
-      else if (body_elem->right()->arity() == 1 
+      else if (body_elem->right()->arity() == 1
           && std::find(chc.dstVars.begin(), chc.dstVars.end(), body_elem->right()) != chc.dstVars.end()) {
         matching[body_elem->right()] = body_elem->left();
       }
