@@ -56,23 +56,27 @@ namespace ufo
       }
     }
 
-    void findMatchingFromBodyElement(HornRuleExt chc, Expr body_elem, ExprMap &matching) {
+    bool findMatchingFromBodyElement(HornRuleExt chc, Expr body_elem, ExprMap &matching) {
       if (body_elem->left()->arity() == 1
           && std::find(chc.dstVars.begin(), chc.dstVars.end(), body_elem->left()) != chc.dstVars.end()) {
         matching[body_elem->left()] = body_elem->right();
+        return true;
       }
       else if (body_elem->right()->arity() == 1
           && std::find(chc.dstVars.begin(), chc.dstVars.end(), body_elem->right()) != chc.dstVars.end()) {
         matching[body_elem->right()] = body_elem->left();
+        return true;
       }
       else {
         for (auto & v : chc.dstVars) {
           Expr ineq = ineqSimplifier(v, body_elem);
           if (ineq->left() == v) {
             matching[ineq->left()] = ineq->right();
+            return true;
           }
         }
       }
+      return false;
     }
 
     // find possible substitutions from body (add to cnj otherwise)
@@ -80,31 +84,28 @@ namespace ufo
       if (chc.body->arity() > 1) {
         for(int j = 0; j < chc.body->arity(); ++j) {
           Expr body_elem = chc.body->arg(j);
-          if (isOpX<EQ>(body_elem)) {
-            findMatchingFromBodyElement(chc, body_elem, matching);
-          }
-          else {
+          if (!isOpX<EQ>(body_elem) || !findMatchingFromBodyElement(chc, body_elem, matching)) {
             cnj.push_back(body_elem);
           }
         }
       }
       else {
-        if (isOpX<EQ>(chc.body)) {
-          findMatchingFromBodyElement(chc, chc.body, matching);
-        }
-        else {
+        if (!isOpX<EQ>(chc.body) || findMatchingFromBodyElement(chc, chc.body, matching)) {
           cnj.push_back(chc.body);
         }
       }
     }
 
+    bool isConsctructor(Expr elem) {
+      return std::find(constructors.begin(), constructors.end(), elem) != constructors.end();
+    }
+
     void findMatchingFromLeftSideElem(Expr elem, ExprMap &matching) {
       if (isOpX<EQ>(elem)) {
-        // TODO: should add checking that it's var (not const or nil)
-        if (elem->left()->arity() == 1) {
+        if (elem->left()->arity() == 1 && !(isConsctructor(bind::fname (elem->left())))) {
           matching[elem->left()] = elem->right();
         }
-        else if (elem->right()->arity() == 1) {
+        else if (elem->right()->arity() == 1 && !(isConsctructor(bind::fname (elem->right())))) {
           matching[elem->right()] = elem->left();
         }
       }
@@ -209,11 +210,6 @@ namespace ufo
         }
       }
 
-      outs() << "print assumptions: " << "\n";
-      for (auto & a : assumptions) {
-        outs() << *a << "\n";
-      }
-
       // creating queries for ADT-ind
       for (auto & chc : chcs) {
         if (chc.isQuery) {
@@ -262,7 +258,7 @@ namespace ufo
           for (auto & a : current_assumptions) {
             outs() << *a << "\n";
           }
-          outs() << "goal:\n" << *goal << "\n";
+          outs() << "goal:\n" << *goal << "\n\n";
 
           ADTSolver sol (goal, current_assumptions, constructors);
           sol.solve();
@@ -283,11 +279,11 @@ namespace ufo
           goal = simplifyBool(goal);
           ExprVector current_assumptions = assumptions;
 
-          outs() << "print assumptions: " << "\n";
+          outs() << "\nprint assumptions: " << "\n";
           for (auto & a : current_assumptions) {
             outs() << *a << "\n";
           }
-          outs() << "goal:\n" << *goal << "\n";
+          outs() << "goal:\n" << *goal << "\n\n";
           ADTSolver adtSol (goal, current_assumptions, constructors);
           adtSol.solveNoind();
         }
