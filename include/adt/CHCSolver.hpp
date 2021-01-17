@@ -142,7 +142,7 @@ namespace ufo
       // find the return value for uninterpreted symbols (keep it in values_inds map)
       for (auto & decl: decls) {
         for (auto & chc : chcs) {
-          if (chc.dstRelation == decl && chc.isInductive) {
+          if (chc.dstRelation == decl && !chc.isFact) {
             std::vector<size_t> adt_inds;
             size_t vars_size = chc.dstRelation->arity();
             bool found = false;
@@ -171,11 +171,15 @@ namespace ufo
                     if (!contains(chc.body, eq1) && !contains(chc.body, eq2)) {
                       values_inds[chc.dstRelation->left()] = ind;
                       break;
+                      found = true;
                     }
                   }
                   break;
                 }
               }
+            }
+            if (!found) {
+              values_inds[chc.dstRelation->left()] = vars_size - 3;
             }
           }
         }
@@ -216,7 +220,6 @@ namespace ufo
           Expr destination;
           ExprVector cnj;
           ExprMap matching;
-          ExprMap body_matching;
           if (chc.body->arity() > 1) {
             for(int j = 0; j < chc.body->arity(); ++j) {
               if (isOpX<NEG>(chc.body->arg(j))) {
@@ -235,6 +238,7 @@ namespace ufo
               size_t ind = values_inds[chc.srcRelations[i]->left()];
               Expr app = createNewApp(chc, i, ind);
               matching[chc.srcVars[i][ind]] = app;
+              outs() << "match " << *chc.srcVars[i][ind] << " " << *app <<"\n";
             }
             else {
                Expr tmp = bind::fapp (chc.srcRelations[i], chc.srcVars[i]);
@@ -242,12 +246,15 @@ namespace ufo
             }
           }
 
+          outs() << "goal1: " << *mk<IMPL>(conjoin(cnj, efac), destination) << "\n";
           Expr goal = replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching);
+          outs() << "goal2: " << *goal << "\n";
           matching.clear();
           Expr left = goal->left();
 
           findMatchingFromLeftSide(left, matching);
           goal = replaceAll(goal, matching);
+          outs() << "goal3: " << *goal << "\n";
           goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
           if (goal->arity() > 0) {
