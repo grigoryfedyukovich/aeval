@@ -10,11 +10,8 @@
 
 (assert (butlast nil nil))
 (assert (forall ((n Int) (xs Lst) (rs Lst) (ys Lst)) (=> (and (= ys (cons n xs)) (= xs nil)) (butlast ys nil))))
-(assert (forall ((n Int) (xs Lst) (rs Lst) (ys Lst) (x Int) (zs Lst))
-	(=> (and (butlast xs rs) (= ys (cons n xs)) (= xs (cons x zs))) (butlast ys (cons n rs)))))
-
-;extra lemma
-(assert (forall ((xs Lst) (n Int) (ys Lst)) (=> (= ys (cons n xs)) (not (= ys nil)))))
+(assert (forall ((n Int) (xs Lst) (rs Lst) (ys Lst))
+	(=> (and (butlast xs rs) (= ys (cons n xs))) (butlast ys (cons n rs)))))
 
 (assert (forall ((xs Lst) (ys Lst) (zs Lst) (n Int) (l1 Int) (l2 Int)) 
 	(=> (and (= ys (cons n xs)) (butlast ys zs) (length ys l1) (length zs l2) (not (= (+ l2 1) l1))) false)))
