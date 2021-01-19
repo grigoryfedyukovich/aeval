@@ -148,15 +148,15 @@ namespace ufo
     bool solve() {
       // find the return value for uninterpreted symbols (keep it in values_inds map)
       for (auto & decl: decls) {
+        if (decl->arity() <= 3) {
+          decls.erase(decl);
+          break;
+        }
         for (auto & chc : chcs) {
           if (chc.dstRelation == decl && !chc.isFact) {
             // TODO: think about return value when there are only adt vars
             // std::vector<size_t> adt_inds;
             size_t vars_size = chc.dstRelation->arity();
-            if (chc.dstRelation->arity() == 3) {
-              values_inds[chc.dstRelation->left()] = vars_size - 1;
-              outs() << vars_size - 1 << "\n";
-            }
             // bool found = false;
             // for (size_t i = vars_size - 2; i > 0; --i) {
             //   bool is_adt = false;
@@ -191,9 +191,7 @@ namespace ufo
             //   }
             // }
             // if (!found) {
-            else {
-              values_inds[chc.dstRelation->left()] = vars_size - 3;
-            }
+            values_inds[chc.dstRelation->left()] = vars_size - 3;
             // }
             break;
           }
