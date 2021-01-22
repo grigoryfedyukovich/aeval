@@ -82,6 +82,7 @@ namespace ufo
 
     ExprSet decls;
     Expr failDecl;
+    ExprVector extras;
     vector<HornRuleExt> chcs;
     map<Expr, ExprVector> invVars;
     map<Expr, vector<int>> incms;
@@ -154,9 +155,8 @@ namespace ufo
             var = bind::realConst(new_name);
           else if (isOpX<BOOL_TY> (a->arg(i)))
             var = bind::boolConst(new_name);
-          else if (isOpX<ARRAY_TY> (a->arg(i))) // GF: currently support only arrays over Ints
-            var = bind::mkConst(new_name, mk<ARRAY_TY>
-                  (mk<INT_TY> (m_efac), mk<INT_TY> (m_efac)));
+          else if (isOpX<ARRAY_TY> (a->arg(i)))
+            var = bind::mkConst(new_name, mk<ARRAY_TY>(a->arg(i)->left(), a->arg(i)->right()));
           else if (isOpX<AD_TY>(a->arg(i))){
             ExprVector type;
             type.push_back(a->arg(i));
@@ -169,9 +169,10 @@ namespace ufo
       }
     }
 
-    Expr normalize (Expr r1, HornRuleExt& hr)
+    Expr normalize (Expr& r1, HornRuleExt& hr)
     {
-      Expr r = regularizeQF(r1);
+      r1 = regularizeQF(r1);
+      Expr r = r1;
 
       // TODO: support more syntactic replacements
       while (isOpX<FORALL>(r))
@@ -226,7 +227,7 @@ namespace ufo
       ExprSet cnjs;
       getConj(e, cnjs);
 
-      for (auto &r1: cnjs)
+      for (auto r1: cnjs)
       {
         chcs.push_back(HornRuleExt());
         HornRuleExt& hr = chcs.back();
@@ -239,7 +240,6 @@ namespace ufo
 
         Expr body = r->arg(0);
         Expr head = r->arg(1);
-
         vector<ExprVector> origSrcSymbs;
         ExprSet lin;
         preprocess(body, hr.locVars, origSrcSymbs, hr.srcRelations, lin);
@@ -247,9 +247,10 @@ namespace ufo
         {
           if (hasUninterp(body))
           {
-            errs () << "Unsupported format\n";
-            errs () << "   " << *body << "\n";
-            exit (1);
+//            errs () << "Unsupported format\n";
+//            errs () << "   " << *body << "\n";
+//            exit (1);
+            lin.clear();
           }
         }
 
@@ -287,7 +288,7 @@ namespace ufo
             origDstSymbs.push_back(*it);
         }
         allOrigSymbs.insert(allOrigSymbs.end(), origDstSymbs.begin(), origDstSymbs.end());
-        simplBoolReplCnj(allOrigSymbs, lin); // perhaps, not a very important optimization now; consider removing
+        //simplBoolReplCnj(allOrigSymbs, lin); // perhaps, not a very important optimization now; consider removing
         hr.body = conjoin(lin, m_efac);
 
         vector<ExprVector> tmp;
@@ -316,6 +317,13 @@ namespace ufo
         }
         hr.assignVarsAndRewrite (origSrcSymbs, tmp,
                                  origDstSymbs, invVars[hr.dstRelation]);
+
+        if (isOpX<TRUE>(hr.body) || (hr.srcRelations.size() == 0 && hr.isQuery))
+        {
+          extras.push_back(r1);
+          chcs.pop_back();
+          continue;
+        }
 
         hr.body = simpleQE(hr.body, hr.locVars);
         ExprVector body_vars;

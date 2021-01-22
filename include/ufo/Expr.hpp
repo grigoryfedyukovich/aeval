@@ -2339,6 +2339,17 @@ namespace expr
 //        assert (0 && "Unreachable");
         return Expr();
       }
+
+      Expr mkMPZ(boost::multiprecision::cpp_int a, ExprFactory& efac)
+      {
+        return mkTerm (mpz_class (boost::lexical_cast<std::string>(a)), efac);
+      }
+
+      Expr mkMPZ(int a, ExprFactory& efac)
+      {
+        return mkTerm (mpz_class (a), efac);
+      }
+
       inline Expr sortOf (Expr v) {return typeOf (v);}
      
       struct FAPP_PS
@@ -2438,6 +2449,15 @@ namespace expr
             {
                 return isIntVar(e) || isRealVar(e) || isBoolVar(e);
             }
+      };
+
+      class IsSelect : public std::unary_function<Expr,bool>
+      {
+      public:
+        bool operator () (Expr e)
+        {
+          return isOpX<SELECT> (e);
+        }
       };
     }
   }
@@ -3027,7 +3047,7 @@ namespace expr
     if (m.empty()) return exp;
     RAVALLM rav(&m);
     Expr tmp = dagVisit (rav, exp);
-    if (tmp == exp || !rec) return exp;
+    if (tmp == exp || !rec) return tmp;
     else return replaceAll(tmp, m, rec, iter+1);
   }
 

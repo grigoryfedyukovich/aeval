@@ -50,9 +50,9 @@ namespace ufo
         else
         {
           if (bind::isBoolConst(v))
-          eqs.push_back(mk<EQ>(v, mk<TRUE>(efac)));
+            eqs.push_back(mk<EQ>(v, mk<TRUE>(efac)));
           else if (bind::isIntConst(v))
-          eqs.push_back(mk<EQ>(v, mkTerm (mpz_class (0), efac)));
+            eqs.push_back(mk<EQ>(v, mkTerm (mpz_class (0), efac)));
         }
       }
       return conjoin (eqs, efac);
@@ -354,6 +354,12 @@ namespace ufo
         }
         outs () << ") ";
         print (e->last());
+        outs () << ")";
+      }
+      else if (isOpX<NEG>(e))
+      {
+        outs () << "(not ";
+        print(e->left());
         outs () << ")";
       }
       else if (isOpX<AND>(e))

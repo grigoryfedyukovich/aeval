@@ -3,6 +3,7 @@
 
 #include "deep/HornNonlin.hpp"
 #include "ADTSolver.hpp"
+#include "SimSynt.hpp"
 #include <algorithm>
 
 using namespace std;
@@ -16,19 +17,18 @@ namespace ufo
 
     std::map<Expr,size_t> values_inds;
     ExprVector &constructors;
-    ExprVector assumptions;
+    ExprVector &assumptions;
 
     ExprSet &decls;
     vector<HornRuleExt> &chcs;
 
   public:
-    CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, vector<HornRuleExt> &_chcs) :
-      constructors(_constructors), adts(_adts), efac(_efac), decls(_decls), chcs(_chcs) {}
+    CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, ExprVector &_assms, vector<HornRuleExt> &_chcs) :
+      constructors(_constructors), adts(_adts), efac(_efac), decls(_decls), assumptions(_assms), chcs(_chcs) {}
 
     Expr createNewApp(HornRuleExt chc, int i, int ind) {
       ExprVector types;
       ExprVector newVars;
-      types.push_back(bind::typeOf(chc.srcVars[i][ind]));
       for(int j = 0; j < chc.srcRelations[i]->arity() - 2; ++j) {
         if (j != ind) {
           Expr e = chc.srcRelations[i]->arg(j);
@@ -36,6 +36,7 @@ namespace ufo
           newVars.push_back(chc.srcVars[i][j]);
         }
       }
+      types.push_back(bind::typeOf(chc.srcVars[i][ind]));
       Expr rel = bind::fdecl (efac.mkTerm(chc.srcRelations[i]->left()->op()), types);
       Expr app = bind::fapp (rel, newVars);
       return app;
@@ -67,21 +68,21 @@ namespace ufo
         matching[body_elem->right()] = body_elem->left();
         return true;
       }
-      for (auto & v : chc.dstVars) {
-        Expr ineq = ineqSimplifier(v, body_elem);
-        if (ineq->left() == v) {
-          matching[ineq->left()] = ineq->right();
-          return true;
+        for (auto & v : chc.dstVars) {
+          Expr ineq = ineqSimplifier(v, body_elem);
+          if (ineq->left() == v) {
+            matching[ineq->left()] = ineq->right();
+            return true;
+          }
         }
-      }
-      if ((body_elem->left()->arity() == 1) && !(isConsctructor(bind::fname(body_elem->left())))) {
-        matching[body_elem->left()] = body_elem->right();
-        return true;
-      }
-      else if ((body_elem->right()->arity() == 1) && !(isConsctructor(bind::fname(body_elem->right())))) {
-        matching[body_elem->right()] = body_elem->left();
-        return true;
-      }
+        if ((body_elem->left()->arity() == 1) && !(isConsctructor(bind::fname(body_elem->left())))) {
+            matching[body_elem->left()] = body_elem->right();
+            return true;
+        }
+        else if ((body_elem->right()->arity() == 1) && !(isConsctructor(bind::fname(body_elem->right())))) {
+            matching[body_elem->right()] = body_elem->left();
+            return true;
+        }
       return false;
     }
 
@@ -132,13 +133,13 @@ namespace ufo
       size_t ind = values_inds[chc.dstRelation->left()];
       ExprVector types;
       ExprVector newVars;
-      types.push_back(bind::typeOf(chc.dstVars[ind]));
       for(int j = 0; j < chc.dstRelation->arity() - 2; ++j) {
         if (j != ind) {
           types.push_back(bind::typeOf(chc.dstVars[j]));
           newVars.push_back(chc.dstVars[j]);
         }
       }
+      types.push_back(bind::typeOf(chc.dstVars[ind]));
       Expr rel = bind::fdecl (efac.mkTerm(chc.dstRelation->left()->op()), types);
       Expr baseApp = bind::fapp (rel, newVars);
       Expr destination = mk<EQ>(baseApp, chc.dstVars[ind]);
@@ -148,52 +149,52 @@ namespace ufo
     bool solve() {
       // find the return value for uninterpreted symbols (keep it in values_inds map)
       for (auto & decl: decls) {
-        if (decl->arity() <= 3) {
-          decls.erase(decl);
-          break;
-        }
+          if (decl->arity() <= 3) {
+              decls.erase(decl);
+              break;
+          }
         for (auto & chc : chcs) {
           if (chc.dstRelation == decl && !chc.isFact) {
-            // TODO: think about return value when there are only adt vars
-            // std::vector<size_t> adt_inds;
-            size_t vars_size = chc.dstRelation->arity();
-            // bool found = false;
-            // for (size_t i = vars_size - 2; i > 0; --i) {
-            //   bool is_adt = false;
-            //   for (auto & adt : adts) {
-            //     if ((*chc.dstRelation)[i] == adt) {
-            //       is_adt = true;
-            //       adt_inds.push_back(i - 1);
-            //       break;
-            //     }
-            //   }
-            //   if (!is_adt) {
-            //     values_inds[chc.dstRelation->left()] = i - 1;
-            //     found = true;
-            //     break;
-            //   }
-            // }
-            // if (!found) {
-            //   for (int i = 0; i < chc.srcRelations.size(); i++) {
-            //     if (chc.srcRelations[i] == decl) {
-            //       for (int j = 0; j < adt_inds.size(); ++j) {
-            //         size_t ind = adt_inds[j];
-            //         Expr eq1 = mk<EQ>(chc.srcVars[0][ind], chc.dstVars[ind]);
-            //         Expr eq2 = mk<EQ>(chc.dstVars[ind], chc.srcVars[0][ind]);
-            //         if (!contains(chc.body, eq1) && !contains(chc.body, eq2)) {
-            //           values_inds[chc.dstRelation->left()] = ind;
-            //           found = true;
-            //           break;
-            //         }
-            //       }
-            //       break;
-            //     }
-            //   }
-            // }
-            // if (!found) {
-            values_inds[chc.dstRelation->left()] = vars_size - 3;
-            // }
-            break;
+// TODO: think about return value when there are only adt vars
+              // std::vector<size_t> adt_inds;
+              size_t vars_size = chc.dstRelation->arity();
+              // bool found = false;
+              // for (size_t i = vars_size - 2; i > 0; --i) {
+              //   bool is_adt = false;
+              //   for (auto & adt : adts) {
+              //     if ((*chc.dstRelation)[i] == adt) {
+              //       is_adt = true;
+              //       adt_inds.push_back(i - 1);
+              //       break;
+              //     }
+              //   }
+              //   if (!is_adt) {
+              //     values_inds[chc.dstRelation->left()] = i - 1;
+              //     found = true;
+              //     break;
+              //   }
+              // }
+              // if (!found) {
+              //   for (int i = 0; i < chc.srcRelations.size(); i++) {
+              //     if (chc.srcRelations[i] == decl) {
+              //       for (int j = 0; j < adt_inds.size(); ++j) {
+              //         size_t ind = adt_inds[j];
+              //         Expr eq1 = mk<EQ>(chc.srcVars[0][ind], chc.dstVars[ind]);
+              //         Expr eq2 = mk<EQ>(chc.dstVars[ind], chc.srcVars[0][ind]);
+              //         if (!contains(chc.body, eq1) && !contains(chc.body, eq2)) {
+              //           values_inds[chc.dstRelation->left()] = ind;
+              //           found = true;
+              //           break;
+              //         }
+              //       }
+              //       break;
+              //     }
+              //   }
+              // }
+              // if (!found) {
+              values_inds[chc.dstRelation->left()] = vars_size - 3;
+              // }
+              break;
           }
         }
       }
@@ -264,22 +265,10 @@ namespace ufo
 
           findMatchingFromLeftSide(left, matching);
           goal = replaceAll(goal, matching);
-          goal = simplifyArithm(goal);
+//          goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
-          if (goal->arity() > 0) {
-            goal = createQuantifiedFormula(goal, constructors);
-          }
           ExprVector current_assumptions = assumptions;
-          outs() << "\nprint assumptions: " << "\n";
-          for (auto & a : current_assumptions) {
-            outs() << *a << "\n";
-          }
-          outs() << "goal:\n" << *goal << "\n\n";
-
-          ADTSolver sol (goal, current_assumptions, constructors);
-          if (sol.solve())
-            assumptions.push_back(goal);
-          else 
+          if (!prove (current_assumptions, goal))
             return false;
         }
         else {
@@ -297,18 +286,90 @@ namespace ufo
           goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
           ExprVector current_assumptions = assumptions;
-
-          outs() << "\nprint assumptions: " << "\n";
-          for (auto & a : current_assumptions) {
-            outs() << *a << "\n";
-          }
-          outs() << "goal:\n" << *goal << "\n\n";
-          ADTSolver adtSol (goal, current_assumptions, constructors);
-          if (!adtSol.solveNoind()) 
+          if (!prove (current_assumptions, goal))
             return false;
         }
       }
       return true;
+    }
+
+    bool solveArr(){
+      Expr decl = NULL;
+      for (auto & d : decls){
+        if (containsOp<ARRAY_TY>(d)){
+          if (decl == NULL) decl = d;
+          else return false;
+        }
+      }
+      Expr base;
+      ExprVector opsAdt, opsArr;
+      set<int> visited;
+      ExprMap varVersions;
+
+      ExprSet adts;
+      for (auto & c : constructors) adts.insert(c->last());
+
+      while (visited.size() != chcs.size()){
+        for (int i = 0; i < chcs.size(); i++){
+          if (find(visited.begin(), visited.end(), i) != visited.end()) continue;
+          auto &hr = chcs[i];
+
+          if (hr.isInductive && varVersions.empty())
+            for (int j = 0; j < hr.srcVars[0].size(); j++)
+              varVersions[hr.srcVars[0][j]] = hr.dstVars[j];
+
+          if (hr.isFact && varVersions.empty()) continue;
+
+          ExprSet tmp, tmpAdt, tmpArr;
+          getConj(hr.body, tmp);
+          for (auto & a : tmp){
+            bool adt = false;
+            for (auto & c : adts)
+              if (contains(a, c)) {
+                tmpAdt.insert(a);
+                adt = true;
+                break;
+              }
+            if (!adt) tmpArr.insert(a);
+          }
+          assert (!tmpAdt.empty());
+
+          if (hr.isFact && !varVersions.empty()){
+            base = replaceAllRev(conjoin(tmpArr, efac), varVersions);
+          } else {
+            opsAdt.push_back(conjoin(tmpAdt, efac));
+            opsArr.push_back(conjoin(tmpArr, efac));
+          }
+          visited.insert(i);
+        }
+      }
+
+      // getting a candidate
+      SimSynt sim (efac, opsAdt, opsArr, varVersions, constructors, decl, assumptions, base);
+      sim.proc();
+
+      // proving
+      for (int i = 0; i < chcs.size(); i++){
+        if (!checkCHC(chcs[i])) return false;
+      }
+      sim.printSol();
+      return true;
+    }
+
+    bool checkCHC(HornRuleExt& hr, bool print = false){
+      ExprVector assms = assumptions;
+      Expr goal = hr.isQuery ? mk<FALSE>(efac) : bind::fapp (hr.dstRelation, hr.dstVars);
+      for (int i = 0; i < hr.srcRelations.size(); i++){
+        assms.push_back(bind::fapp (hr.srcRelations[i], hr.srcVars[i]));
+      }
+      assms.push_back(hr.body);
+      return prove (assms, goal, 2, print);
+    }
+
+    bool prove (ExprVector& lemmas, Expr fla, int rounds = 2, bool print = false)
+    {
+      ADTSolver sol (fla, lemmas, constructors, 5, 2, 3, 1, print); // last false is for verbosity
+      return isOpX<FORALL>(fla) ? sol.solve() : sol.solveNoind(rounds);
     }
   };
 
@@ -319,22 +380,21 @@ namespace ufo
     CHCs ruleManager(efac, z3);
     ExprSet adts;
     ruleManager.parse(smt_file);
-    ruleManager.print();
+//    ruleManager.print();
 
-    std::map<Expr,size_t> values_inds;
     ExprVector constructors;
     ExprVector assumptions;
 
-    ExprSet decls = ruleManager.decls;
+    ExprSet& decls = ruleManager.decls;
 
     for (auto & a : z3.getAdtConstructors()) {
       constructors.push_back(regularizeQF(a));
       adts.insert(a->last());
     }
 
-    CHCSolver sol (constructors, adts, efac, decls, ruleManager.chcs);
-    if (sol.solve())
-      outs() << "CHC System is hold\n";
+    CHCSolver sol (constructors, adts, efac, decls, ruleManager.extras, ruleManager.chcs);
+    bool res = containsOp<ARRAY_TY>(conjoin(decls, efac)) ? sol.solveArr() : sol.solve();
+    outs () << (res ? "unsat\n" : "unknown\n");
   }
 }
 

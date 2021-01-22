@@ -29,7 +29,7 @@
 
 (declare-fun isAmortized (Queue) Bool)
 (assert (forall ((x Lst) (y Lst) (lx Int) (ly Int)) 
-	(=> (and (len x lx) (len y ly)) (= (isAmortized (queue x y)) (<= ly lx)))))
+	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y)))))
 
 ; extra lemma
 (assert (forall ((x Lst) (lx Int)) (=> (len x lx) (<= 0 lx))))
