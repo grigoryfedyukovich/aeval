@@ -8,14 +8,14 @@
 
 (declare-fun rev2 (Lst Lst Lst) Bool)
 (assert (forall ((a Lst)) (rev2 nil a a)))
-(assert (forall ((x Int) (ts Lst) (xs Lst) (as Lst) (rs Lst) (us Lst))
-	(=> (and (= xs (cons x ts)) (= rs (cons x as)) (rev2 ts rs us)) (rev2 xs as us)))) 
+(assert (forall ((x Int) (ts Lst) (xs Lst) (zs Lst) (rs Lst) (us Lst))
+	(=> (and (= xs (cons x ts)) (= rs (cons x zs)) (rev2 ts rs us)) (rev2 xs zs us)))) 
 
 ; extra lemma
 (assert (forall ((xs Lst) (ys Lst) (zs Lst) (rs Lst) (ts Lst) (us Lst))
 	(=> (and (append xs ys rs) (append ys zs ts) (append xs ts us)) (append rs zs us))))
 
-(assert (forall ((xs Lst) (as Lst) (ts Lst) (us Lst) (ys Lst)) 
-	(=> (and (rev2 xs as ts) (rev2 xs nil ys) (append ys as us) (not (= ts us))) false)))
+(assert (forall ((xs Lst) (zs Lst) (ts Lst) (us Lst) (ys Lst)) 
+	(=> (and (rev2 xs zs ts) (rev2 xs nil ys) (append ys zs us) (not (= ts us))) false)))
 
 (check-sat)

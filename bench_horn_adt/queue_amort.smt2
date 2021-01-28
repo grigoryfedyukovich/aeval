@@ -15,9 +15,9 @@
 
 
 (declare-fun rev2 (Lst Lst Lst) Bool)
-(assert (forall ((as Lst)) (rev2 nil as as)))
-(assert (forall ((x Int) (ts Lst) (xs Lst) (as Lst) (rs Lst) (us Lst))
-	(=> (and (= xs (cons x ts)) (= rs (cons x as)) (rev2 ts rs us)) (rev2 xs as us)))) 
+(assert (forall ((xs Lst)) (rev2 nil xs xs)))
+(assert (forall ((x Int) (ts Lst) (xs Lst) (zs Lst) (rs Lst) (us Lst))
+	(=> (and (= xs (cons x ts)) (= rs (cons x zs)) (rev2 ts rs us)) (rev2 xs zs us)))) 
 
 (declare-fun qrev (Lst Lst) Bool)
 (assert (forall ((xs Lst) (ys Lst)) (=> (rev2 xs nil ys) (qrev xs ys))))

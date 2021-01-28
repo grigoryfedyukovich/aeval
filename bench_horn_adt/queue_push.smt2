@@ -19,17 +19,20 @@
 
 
 (declare-fun rev2 (Lst Lst Lst) Bool)
-(assert (forall ((as Lst)) (rev2 nil as as)))
-(assert (forall ((x Int) (ts Lst) (xs Lst) (as Lst) (rs Lst) (us Lst))
-	(=> (and (= xs (cons x ts)) (= rs (cons x as)) (rev2 ts rs us)) (rev2 xs as us)))) 
+(assert (forall ((zs Lst)) (rev2 nil zs zs)))
+(assert (forall ((x Int) (ts Lst) (xs Lst) (zs Lst) (rs Lst) (us Lst))
+	(=> (and (= xs (cons x ts)) (= rs (cons x zs)) (rev2 ts rs us)) (rev2 xs zs us)))) 
 
 (declare-fun qrev (Lst Lst) Bool)
 (assert (forall ((xs Lst) (ys Lst)) (=> (rev2 xs nil ys) (qrev xs ys))))
 
 (declare-fun amortizeQueue (Lst Lst Queue) Bool)
-(assert (forall ((x Lst) (y Lst) (q Queue) (ly Int) (lx Int) (z Lst) (a Lst)) 
-	(=> (and (len y ly) (len x lx) (qrev y z) (append x z a)
-		(= q (ite (<= ly lx) (queue x y) (queue a nil)))) (amortizeQueue x y q))))
+(assert (forall ((x Lst) (y Lst) (q Queue) (ly Int) (lx Int) (z Lst) (a Lst))
+	(=> (and (len y ly) (len x lx) (qrev y z) (append x z a) (<= ly lx) (= q (queue x y)))
+		(amortizeQueue x y q))))
+(assert (forall ((x Lst) (y Lst) (q Queue) (ly Int) (lx Int) (z Lst) (a Lst))
+	(=> (and (len y ly) (len x lx) (qrev y z) (append x z a) (> ly lx) (= q (queue a nil)))
+		(amortizeQueue x y q))))
 
 (declare-fun qpush (Queue Int Queue) Bool)
 (assert (forall ((x Lst) (y Lst) (n Int) (q Queue)) 
