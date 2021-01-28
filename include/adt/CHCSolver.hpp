@@ -268,8 +268,17 @@ namespace ufo
 //          goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
           ExprVector current_assumptions = assumptions;
+          // outs() << "assumptions:\n";
+          // for (auto & a : current_assumptions) {
+          //   outs() << *a << "\n";
+          // } 
+          // outs() << "goal: \n";
+          // outs() << *goal << "\n";
           if (!prove (current_assumptions, goal))
             return false;
+          else {
+            assumptions.push_back(goal);
+          }
         }
         else {
           ExprVector cnj;
