@@ -20,6 +20,7 @@ namespace ufo
     ExprVector &assumptions;
 
     ExprSet &decls;
+    ExprSet filter_decls;
     vector<HornRuleExt> &chcs;
 
   public:
@@ -44,7 +45,7 @@ namespace ufo
 
     void createLeftConjs(HornRuleExt chc, ExprVector & cnj) {
       for (int i = 0; i < chc.srcRelations.size(); i++) {
-        if (decls.find(chc.srcRelations[i]) != decls.end()) {
+        if (filter_decls.find(chc.srcRelations[i]) != filter_decls.end()) {
           size_t ind = values_inds[chc.srcRelations[i]->left()];
           Expr app = createNewApp(chc, i, ind);
           Expr def = mk<EQ>(app, chc.srcVars[i][ind]);
@@ -88,7 +89,7 @@ namespace ufo
 
     // find possible substitutions from body (add to cnj otherwise)
     void findMatchingFromBody(HornRuleExt chc, ExprMap &matching, ExprVector &cnj) {
-      if (chc.body->arity() > 1) {
+      if (chc.body->arity() > 1 && !findMatchingFromBodyElement(chc, chc.body, matching)) {
         for(int j = 0; j < chc.body->arity(); ++j) {
           Expr body_elem = chc.body->arg(j);
           if (!isOpX<EQ>(body_elem) || !findMatchingFromBodyElement(chc, body_elem, matching)) {
@@ -150,52 +151,52 @@ namespace ufo
       // find the return value for uninterpreted symbols (keep it in values_inds map)
       for (auto & decl: decls) {
           if (decl->arity() <= 3) {
-              decls.erase(decl);
-              break;
+              continue;
           }
-        for (auto & chc : chcs) {
-          if (chc.dstRelation == decl && !chc.isFact) {
-// TODO: think about return value when there are only adt vars
-              // std::vector<size_t> adt_inds;
-              size_t vars_size = chc.dstRelation->arity();
-              // bool found = false;
-              // for (size_t i = vars_size - 2; i > 0; --i) {
-              //   bool is_adt = false;
-              //   for (auto & adt : adts) {
-              //     if ((*chc.dstRelation)[i] == adt) {
-              //       is_adt = true;
-              //       adt_inds.push_back(i - 1);
-              //       break;
-              //     }
-              //   }
-              //   if (!is_adt) {
-              //     values_inds[chc.dstRelation->left()] = i - 1;
-              //     found = true;
-              //     break;
-              //   }
-              // }
-              // if (!found) {
-              //   for (int i = 0; i < chc.srcRelations.size(); i++) {
-              //     if (chc.srcRelations[i] == decl) {
-              //       for (int j = 0; j < adt_inds.size(); ++j) {
-              //         size_t ind = adt_inds[j];
-              //         Expr eq1 = mk<EQ>(chc.srcVars[0][ind], chc.dstVars[ind]);
-              //         Expr eq2 = mk<EQ>(chc.dstVars[ind], chc.srcVars[0][ind]);
-              //         if (!contains(chc.body, eq1) && !contains(chc.body, eq2)) {
-              //           values_inds[chc.dstRelation->left()] = ind;
-              //           found = true;
-              //           break;
-              //         }
-              //       }
-              //       break;
-              //     }
-              //   }
-              // }
-              // if (!found) {
-              values_inds[chc.dstRelation->left()] = vars_size - 3;
-              // }
-              break;
-          }
+          filter_decls.insert(decl);
+            for (auto & chc : chcs) {
+              if (chc.dstRelation == decl && !chc.isFact) {
+                // TODO: think about return value when there are only adt vars
+                // std::vector<size_t> adt_inds;
+                size_t vars_size = chc.dstRelation->arity();
+                // bool found = false;
+                // for (size_t i = vars_size - 2; i > 0; --i) {
+                //   bool is_adt = false;
+                //   for (auto & adt : adts) {
+                //     if ((*chc.dstRelation)[i] == adt) {
+                //       is_adt = true;
+                //       adt_inds.push_back(i - 1);
+                //       break;
+                //     }
+                //   }
+                //   if (!is_adt) {
+                //     values_inds[chc.dstRelation->left()] = i - 1;
+                //     found = true;
+                //     break;
+                //   }
+                // }
+                // if (!found) {
+                //   for (int i = 0; i < chc.srcRelations.size(); i++) {
+                //     if (chc.srcRelations[i] == decl) {
+                //       for (int j = 0; j < adt_inds.size(); ++j) {
+                //         size_t ind = adt_inds[j];
+                //         Expr eq1 = mk<EQ>(chc.srcVars[0][ind], chc.dstVars[ind]);
+                //         Expr eq2 = mk<EQ>(chc.dstVars[ind], chc.srcVars[0][ind]);
+                //         if (!contains(chc.body, eq1) && !contains(chc.body, eq2)) {
+                //           values_inds[chc.dstRelation->left()] = ind;
+                //           found = true;
+                //           break;
+                //         }
+                //       }
+                //       break;
+                //     }
+                //   }
+                // }
+                // if (!found) {
+                values_inds[chc.dstRelation->left()] = vars_size - 3;
+                // }
+                break;
+            }
         }
       }
 
@@ -208,7 +209,7 @@ namespace ufo
           findMatchingFromBody(chc, matching, cnj);
           Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
           size_t ind;
-          if (decls.find(chc.dstRelation) != decls.end()) {
+          if (filter_decls.find(chc.dstRelation) != filter_decls.end()) {
             destination = createDestination(chc);
           }
           Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
@@ -248,7 +249,7 @@ namespace ufo
             destination = mkNeg(chc.body);
           }
           for (int i = 0; i < chc.srcRelations.size(); i++) {
-            if (decls.find(chc.srcRelations[i]) != decls.end()) {
+            if (filter_decls.find(chc.srcRelations[i]) != filter_decls.end()) {
               size_t ind = values_inds[chc.srcRelations[i]->left()];
               Expr app = createNewApp(chc, i, ind);
               matching[chc.srcVars[i][ind]] = app;
@@ -267,6 +268,9 @@ namespace ufo
           goal = replaceAll(goal, matching);
 //          goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
+          // if (goal->arity() > 0) { 
+          //   goal = createQuantifiedFormula(goal, constructors); 
+          // }          
           ExprVector current_assumptions = assumptions;
           // outs() << "assumptions:\n";
           // for (auto & a : current_assumptions) {
@@ -287,7 +291,7 @@ namespace ufo
           findMatchingFromBody(chc, matching, cnj);
           Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
           ExprVector vars = chc.dstVars;
-          if (decls.find(chc.dstRelation) != decls.end()) {
+          if (filter_decls.find(chc.dstRelation) != filter_decls.end()) {
             destination = createDestination(chc);
           }
           Expr goal = mk<IMPL>(conjoin(cnj, efac), destination);
@@ -295,6 +299,12 @@ namespace ufo
           goal = simplifyArithm(goal);
           goal = simplifyBool(goal);
           ExprVector current_assumptions = assumptions;
+          // outs() << "assumptions:\n";
+          // for (auto & a : current_assumptions) {
+          //   outs() << *a << "\n";
+          // } 
+          // outs() << "goal: \n";
+          // outs() << *goal << "\n";
           if (!prove (current_assumptions, goal))
             return false;
         }
@@ -389,7 +399,7 @@ namespace ufo
     CHCs ruleManager(efac, z3);
     ExprSet adts;
     ruleManager.parse(smt_file);
-//    ruleManager.print();
+   // ruleManager.print();
 
     ExprVector constructors;
     ExprVector assumptions;

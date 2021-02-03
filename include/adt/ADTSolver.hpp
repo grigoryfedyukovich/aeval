@@ -821,7 +821,8 @@ namespace ufo
                 "  proven trivially (with Z3)\n" << string(sp, ' ') << "}\n";
             }
             else
-            {auto rewriteHistoryTmp = rewriteHistory;
+            {
+            auto rewriteHistoryTmp = rewriteHistory;
             auto rewriteSequenceTmp = rewriteSequence;
             auto assumptionsTmp = assumptions;
 
