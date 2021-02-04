@@ -1,3 +1,5 @@
+(set-logic HORN)
+
 ; (binary search) tree
 (declare-datatypes () ((Tree (node (data Int) (left Tree) (right Tree)) (leaf))))
 

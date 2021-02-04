@@ -1,3 +1,4 @@
+(set-logic HORN)
 ; lists      
 (declare-datatypes () ((Lst (cons (head Int) (tail Lst)) (nil))))
 

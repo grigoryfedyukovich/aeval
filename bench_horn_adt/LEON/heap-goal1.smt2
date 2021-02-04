@@ -1,3 +1,5 @@
+(set-logic HORN)
+
 ; heaps
 (declare-datatypes () ((Heap (hleaf) (heap (rk Int) (value Int) (hleft Heap) (hright Heap)))))
 
