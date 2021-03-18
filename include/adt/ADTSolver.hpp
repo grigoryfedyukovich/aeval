@@ -822,15 +822,15 @@ namespace ufo
             }
             else
             {
-            auto rewriteHistoryTmp = rewriteHistory;
-            auto rewriteSequenceTmp = rewriteSequence;
-            auto assumptionsTmp = assumptions;
+              auto rewriteHistoryTmp = rewriteHistory;
+              auto rewriteSequenceTmp = rewriteSequence;
+              auto assumptionsTmp = assumptions;
 
-            if (verbose) outs() << string(sp, ' ') << "{\n";
-            sp += 2;
-            tmpres= rewriteAssumptions(s);   // recursive call
-            sp -= 2;
-            if (verbose) outs() << string(sp, ' ') << "}\n";
+              if (verbose) outs() << string(sp, ' ') << "{\n";
+              sp += 2;
+              tmpres= rewriteAssumptions(s);   // recursive call
+              sp -= 2;
+              if (verbose) outs() << string(sp, ' ') << "}\n";
 
               rewriteHistory = rewriteHistoryTmp;
               rewriteSequence = rewriteSequenceTmp;
@@ -1482,6 +1482,7 @@ namespace ufo
         // always add symmetric IH?
         insertSymmetricAssumption(a);
       }
+
 
       // prove the inductive step
       Expr indConsApp = bind::fapp(indConstructor, args);

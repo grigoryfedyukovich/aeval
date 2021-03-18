@@ -16,11 +16,11 @@
 (assert (forall ((k Int) (v Int) (l Heap) (r Heap))
 	(rank (heap k v l r) k)))
 
-(declare-fun hasLeftistProperty (Heap) Bool)
-(assert (hasLeftistProperty hleaf))
+(declare-fun hasLeftistProperty (Heap Bool) Bool)
+(assert (hasLeftistProperty hleaf true))
 (assert (forall ((k Int) (v Int) (l Heap) (r Heap) (rh Int) (lh Int)) 
-	(=> (and (hasLeftistProperty l) (hasLeftistProperty r) (rightHeight r rh) (rightHeight l lh)
-		(<= rh lh) (= k (+ 1 rh))) (hasLeftistProperty (heap k v l r)))))
+	(=> (and (hasLeftistProperty l true) (hasLeftistProperty r true) (rightHeight r rh) (rightHeight l lh)
+		(<= rh lh) (= k (+ 1 rh))) (hasLeftistProperty (heap k v l r) true))))
                                                                                                
 (declare-fun mergea (Int Heap Heap Heap) Bool)
 (assert (forall ((v Int) (l Heap) (r Heap) (rr Int) (lr Int))
@@ -50,7 +50,7 @@
 
 ; conjecture
 (assert (forall ((v Int) (x Heap) (y Heap) (h Heap))
-	(=> (and (hasLeftistProperty x) (hasLeftistProperty y) (mergea v x y h) (not (hasLeftistProperty h)))
+	(=> (and (hasLeftistProperty x true) (hasLeftistProperty y true) (mergea v x y h) (not (hasLeftistProperty h true)))
 		false)))
 
 (check-sat)

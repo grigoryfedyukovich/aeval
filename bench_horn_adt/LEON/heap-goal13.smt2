@@ -8,16 +8,17 @@
 (assert (forall ((x Int) (xs Lst) (ys Lst) (l Int))
            (=> (and (= xs (cons x ys)) (len ys l)) (len xs (+ l 1)))))
 
-(declare-fun rsorted (Lst) Bool)
-(assert (rsorted nil))
-(assert (forall ((x Int)) (rsorted (cons x nil))))
-(assert (forall ((x Int) (z Int) (y Lst)) (= (rsorted (cons x (cons z y))) (and (rsorted (cons z y)) (<= z x)))))
+(declare-fun rsorted (Lst Bool) Bool)
+(assert (rsorted nil true))
+(assert (forall ((x Int)) (rsorted (cons x nil) true)))
+(assert (forall ((x Int) (z Int) (y Lst) (r Bool)) 
+	(=> (rsorted (cons z y) r) (rsorted (cons x (cons z y)) (and r (<= z x))))))
 
-(declare-fun sorted (Lst) Bool)
-(assert (sorted nil))
-(assert (forall ((x Int)) (sorted (cons x nil))))
-(assert (forall ((x Int) (z Int) (y Lst)) (= (sorted (cons x (cons z y))) (and (rsorted (cons z y)) (<= x z)))))
-
+(declare-fun sorted (Lst Bool) Bool)
+(assert (sorted nil true))
+(assert (forall ((x Int)) (sorted (cons x nil) true)))
+(assert (forall ((x Int) (z Int) (y Lst) (r Bool)) 
+	(=> (rsorted (cons z y) r) (sorted (cons x (cons z y)) (and r (<= x z))))))
 ; heaps
 (declare-datatypes () ((Heap (hleaf) (heap (rk Int) (value Int) (hleft Heap) (hright Heap)))))
 
@@ -31,11 +32,11 @@
 (assert (forall ((k Int) (v Int) (l Heap) (r Heap))
 	(rank (heap k v l r) k)))
 
-(declare-fun hasLeftistProperty (Heap) Bool)
-(assert (hasLeftistProperty hleaf))
+(declare-fun hasLeftistProperty (Heap Bool) Bool)
+(assert (hasLeftistProperty hleaf true))
 (assert (forall ((k Int) (v Int) (l Heap) (r Heap) (rh Int) (lh Int)) 
-	(=> (and (hasLeftistProperty l) (hasLeftistProperty r) (rightHeight r rh) (rightHeight l lh)
-		(<= rh lh) (= k (+ 1 rh))) (hasLeftistProperty (heap k v l r)))))
+	(=> (and (hasLeftistProperty l true) (hasLeftistProperty r true) (rightHeight r rh) (rightHeight l lh)
+		(<= rh lh) (= k (+ 1 rh))) (hasLeftistProperty (heap k v l r) true))))
                                                                                                
 (declare-fun hsize (Heap Int) Bool)
 (assert (hsize hleaf 0))
@@ -79,7 +80,7 @@
 
 ; conjecture
 (assert (forall ((l Lst) (x Heap) (m Lst) (ms Int) (xs Int) (ls Int))
-	(=> (and (hasLeftistProperty x) (qheapsorta x l m) (len m ms) (hsize x xs) (len l ls) 
+	(=> (and (hasLeftistProperty x true) (qheapsorta x l m) (len m ms) (hsize x xs) (len l ls) 
 		(not (= ms (+ xs ls)))) false)))
 
 (check-sat)

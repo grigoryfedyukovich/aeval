@@ -36,13 +36,13 @@
 (assert (forall ((x Lst) (y Lst) (lx Int) (ly Int) (lq Int))
 	(=> (and (len x lx) (len y ly)) (qlen (queue x y) (+ lx ly)))))
 
-(declare-fun isAmortized (Queue) Bool)
+(declare-fun isAmortized (Queue Bool) Bool)
 (assert (forall ((x Lst) (y Lst) (lx Int) (ly Int))
-	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y)))))
+	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y) true))))
 
-(declare-fun isNotEmpty (Queue) Bool)
-(assert (forall ((x Lst) (y Lst) (z Lst) (n Int)) (=> (= x (cons n z)) (isNotEmpty (queue x y)))))
-(assert (forall ((x Lst) (y Lst) (z Lst) (n Int)) (=> (= y (cons n z)) (isNotEmpty (queue x y)))))
+(declare-fun isNotEmpty (Queue Bool) Bool)
+(assert (forall ((x Lst) (y Lst) (z Lst) (n Int)) (=> (= x (cons n z)) (isNotEmpty (queue x y) true))))
+(assert (forall ((x Lst) (y Lst) (z Lst) (n Int)) (=> (= y (cons n z)) (isNotEmpty (queue x y) true))))
 
 (declare-fun amortizeQueue (Lst Lst Queue) Bool)
 (assert (forall ((x Lst) (y Lst) (q Queue) (ly Int) (lx Int) (z Lst) (a Lst)) 
@@ -59,4 +59,4 @@
 
 ; conjecture
 (assert (forall ((q Queue) (n Int) (p Queue) (lq Int) (lp Int))
-	(=> (and (isAmortized q) (isNotEmpty q) (qpop q p) (qlen q lq) (qlen p lp) (not (= (+ lq 1) lp))) false)))
+	(=> (and (isAmortized q true) (isNotEmpty q true) (qpop q p) (qlen q lq) (qlen p lp) (not (= (+ lq 1) lp))) false)))

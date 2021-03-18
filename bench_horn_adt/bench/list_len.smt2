@@ -1,4 +1,3 @@
-
 (set-logic HORN)
 (declare-datatypes () ((Lst (cons (head Int) (tail Lst)) (nil))))
 (declare-fun length (Lst Int) Bool)

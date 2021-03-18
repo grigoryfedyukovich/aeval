@@ -29,13 +29,6 @@
 (assert (forall ((x Lst) (y Lst) (z Lst) (lx Int) (ly Int) (lz Int)) 
 	(=> (and (qreva x y z) (len z lz) (len x lx) (len y ly)) (= lz (+ lx ly))))) ; G-amortize-queue-2 
 
-; (assert 
-; (forall ((x Lst) (y Lst)) (= (len (append x y)) (plus (len x) (len y))))  ; G-amortize-queue-1 
-; )
-; (assert 
-; (forall ((x Lst) (y Lst)) (= (len (qreva x y)) (plus (len x) (len y)))) ; G-amortize-queue-2 
-; )
-
 ; conjecture
 (assert (forall ((x Lst) (lx Int) (y Lst) (ly Int))
        (=> (and (qrev x y) (len x lx) (len y ly) (not (= lx ly))) false))) ; G-amortize-queue-3

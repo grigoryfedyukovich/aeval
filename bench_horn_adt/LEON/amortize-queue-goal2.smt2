@@ -20,6 +20,6 @@
 
 ; conjecture
 (assert (forall ((x Lst) (y Lst) (z Lst) (lx Int) (ly Int) (lz Int)) 
-	(=> (and (qreva x y z) (len z lz) (len x lx) (len y ly) (not (= lz (+ lx ly)))) 
+	(=> (and (qreva x y z) (len z lz) (len x lx) (len y ly) (not (= lz (+ 1(+ lx ly))))) 
 		false))) ; G-amortize-queue-2 
 (check-sat)

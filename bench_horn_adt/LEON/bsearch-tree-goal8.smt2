@@ -19,14 +19,13 @@
 (assert (forall ((d Int) (l Tree) (r Tree) (i Int))
 	(=> (tcontains r i true) (tcontains (node d l r) i true))))
 
-(declare-fun tsorted (Tree) Bool)
-(assert (tsorted leaf))
-(assert (forall ((d Int) (l Tree) (r Tree)) (= (tsorted (node d l r)) (and (tsorted l) (tsorted r)
-                                                                           (forall ((x Int)) (=> (tcontains l x true) (<= x d)))
-                                                                           (forall ((x Int)) (=> (tcontains r x true) (< d x)))))))
-                                                                           
-; conjecture
+(declare-fun tsorted (Tree Bool) Bool)
+(assert (tsorted leaf true))
+(assert (forall ((d Int) (l Tree) (r Tree) (x Int) (y Int))
+	(=> (and (tsorted l true) (tsorted r true) (tcontains l x true) (tcontains r x true)
+		(<= x d) (< d x)) (tsorted (node d l r) true))))
+
 (assert (forall ((x Tree) (i Int) (y Tree))
-	(=> (and (tsorted x) (tinsert x i y) (not (tsorted y))) false))); G-bsearch-tree-8 
+	(=> (and (tsorted x true) (tinsert x i y) (not (tsorted y true))) false))); G-bsearch-tree-8 
 
 (check-sat)

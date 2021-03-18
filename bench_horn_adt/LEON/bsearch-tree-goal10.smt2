@@ -9,6 +9,7 @@
 	(=> (and (tinsert r i x) (< d i) (= m (node d l x))) (tinsert (node d l r) i m))))
 (assert (forall ((r Tree) (l Tree) (d Int) (i Int) (y Tree) (m Tree)) 
 	(=> (and (tinsert l i y) (>= d i) (= m (node d y r))) (tinsert (node d l r) i m))))
+
 (declare-fun tmember (Tree Int Bool) Bool)
 (assert (forall ((x Int)) (tmember leaf x false)))
 (assert (forall ((d Int) (l Tree) (r Tree) (i Int)) 

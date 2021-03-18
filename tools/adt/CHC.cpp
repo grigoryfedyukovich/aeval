@@ -15,6 +15,15 @@ char * getStrValue(const char * opt, const char * defValue, int argc, char ** ar
   return (char *)defValue;
 }
 
+bool getBoolValue(const char * opt, bool defValue, int argc, char ** argv)
+{
+  for (int i = 1; i < argc; i++)
+  {
+    if (strcmp(argv[i], opt) == 0) return true;
+  }
+  return defValue;
+}
+
 char * getSmtFileName(int num, int argc, char ** argv)
 {
   int num1 = 1;
@@ -33,6 +42,8 @@ char * getSmtFileName(int num, int argc, char ** argv)
 int main (int argc, char ** argv)
 {
   char *infile = getSmtFileName(1, argc, argv);
-  chcSolve(infile);
+  bool givePriorityNonAdt = getBoolValue("--give-nonadt-priority", false, argc, argv);
+  bool ignoreBaseVar = getBoolValue("--ignore-base", false, argc, argv);
+  chcSolve(infile, givePriorityNonAdt, ignoreBaseVar);
   return 0;
 }

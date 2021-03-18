@@ -36,9 +36,9 @@
 (assert (forall ((x Lst) (y Lst) (q Queue) (z Lst) (a Lst))
 	(=> (and (qrev y z) (append x z a)) (queue-to-lst (queue x y) a))))
 
-(declare-fun isAmortized (Queue) Bool)
+(declare-fun isAmortized (Queue Bool) Bool)
 (assert (forall ((x Lst) (y Lst) (lx Int) (ly Int))
-	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y)))))
+	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y) true))))
 
 (declare-fun amortizeQueue (Lst Lst Queue) Bool)
 (assert (forall ((x Lst) (y Lst) (q Queue) (ly Int) (lx Int) (z Lst) (a Lst)) 
@@ -58,6 +58,6 @@
 	(=> (and (append x y z) (len z lz) (len x lx) (len y ly)) (= lz (+ lx ly))))) ; G-amortize-queue-1 
 ; conjecture
 (assert (forall ((x Lst) (y Lst) (q Queue))
-	(=> (and (amortizeQueue x y q) (not (isAmortized q))) false)))
+	(=> (and (amortizeQueue x y q) (not (isAmortized q true))) false)))
 
 (check-sat)

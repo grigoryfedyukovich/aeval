@@ -24,12 +24,12 @@
 (assert (forall ((d Int) (l Tree) (r Tree) (i Int))
 	(=> (tcontains r i true) (tcontains (node d l r) i true))))
 
-(declare-fun tsorted (Tree) Bool)
-(assert (tsorted leaf))
-(assert (forall ((d Int) (l Tree) (r Tree)) (= (tsorted (node d l r)) (and (tsorted l) (tsorted r)
-                                                                           (forall ((x Int)) (=> (tcontains l x true) (<= x d)))
-                                                                           (forall ((x Int)) (=> (tcontains r x true) (< d x)))))))
- 
+(declare-fun tsorted (Tree Bool) Bool)
+(assert (tsorted leaf true))
+(assert (forall ((d Int) (l Tree) (r Tree) (x Int) (y Int))
+	(=> (and (tsorted l true) (tsorted r true) (tcontains l x true) (tcontains r x true)
+		(<= x d) (< d x)) (tsorted (node d l r) true))))
+		 
 (assert (forall ((t Tree) (n Int) (r Tree) (ts Int) (rs Int))
 	(=> (and (tinsert t n r) (tsize r rs) (tsize t ts) (not (= rs (+ 1 ts)))) false)))
 

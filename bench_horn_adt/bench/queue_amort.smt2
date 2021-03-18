@@ -27,14 +27,14 @@
 	(=> (and (len y ly) (len x lx) (qrev y z) (append x z a)
 		(= q (ite (<= ly lx) (queue x y) (queue a nil)))) (amortizeQueue x y q))))
 
-(declare-fun isAmortized (Queue) Bool)
+(declare-fun isAmortized (Queue Bool) Bool)
 (assert (forall ((x Lst) (y Lst) (lx Int) (ly Int)) 
-	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y)))))
+	(=> (and (len x lx) (len y ly) (<= ly lx)) (isAmortized (queue x y) true))))
 
 ; extra lemma
 (assert (forall ((x Lst) (lx Int)) (=> (len x lx) (<= 0 lx))))
 
 (assert (forall ((x Lst) (y Lst) (q Queue)) 
-	(=> (and (amortizeQueue x y q) (not (isAmortized q))) false)))
+	(=> (and (amortizeQueue x y q) (not (isAmortized q true))) false)))
 
 (check-sat)
