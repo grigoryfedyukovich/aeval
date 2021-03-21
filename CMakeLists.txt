@@ -81,6 +81,7 @@ if (NOT Z3_FOUND)
   ExternalProject_Get_Property (z3 INSTALL_DIR)
   set(Z3_ROOT ${INSTALL_DIR} CACHE PATH "Forced location of Z3" FORCE)
   message(WARNING "No Z3 found. Run \n\tcmake --build . && cmake ${CMAKE_SOURCE_DIR}")
+  return()
 else()
   set_target_properties(z3 PROPERTIES EXCLUDE_FROM_ALL ON)
   include_directories(${Z3_INCLUDE_DIR})
@@ -88,57 +89,6 @@ else()
   # indicate that we want z3 binary to be included in the binary distribution
   install (PROGRAMS ${Z3_EXECUTABLE} DESTINATION bin)
 endif()
-
-ExternalProject_Add (llvm
-  SVN_REPOSITORY http://llvm.org/svn/llvm-project/llvm/tags/RELEASE_360/final/
-  SOURCE_DIR ${CMAKE_SOURCE_DIR}/ext/llvm
-  INSTALL_DIR ${CMAKE_BINARY_DIR}/run
-  CMAKE_ARGS
-  -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER} -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-  -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
-  -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
-  -DLLVM_TARGETS_TO_BUILD:STRING=X86 -DWITH_POLY:BOOL=OFF
-  -DLLVM_ENABLE_PEDANTIC=OFF
-  -DLLVM_ENABLE_PIC=ON -DLLVM_REQUIRES_RTTI:BOOL=TRUE
-  TEST_AFTER_INSTALL 1
-  TEST_COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_FILE}
-  LOG_CONFIGURE 1
-  LOG_BUILD 1
-  LOG_INSTALL 1)
-
-find_package (LLVM 3.6.0 CONFIG NO_DEFAULT_PATH)
-if (NOT LLVM_FOUND)
-  ExternalProject_Get_Property (llvm INSTALL_DIR)
-  set (LLVM_ROOT ${INSTALL_DIR})
-  set (LLVM_DIR ${LLVM_ROOT}/share/llvm/cmake CACHE PATH
-    "Forced location of LLVM cmake config" FORCE)
-  message (WARNING "No llvm found. Run \n\tcmake --build . && cmake ${CMAKE_SOURCE_DIR}")
-  return()
-else()
-  set_target_properties(llvm PROPERTIES EXCLUDE_FROM_ALL ON)
-
-  message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
-  message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
-
-  # We incorporate the CMake features provided by LLVM:
-  list(APPEND CMAKE_MODULE_PATH "${LLVM_CMAKE_DIR}")
-  include(AddLLVM)
-  include(HandleLLVMOptions)
-  set(LLVM_RUNTIME_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/bin)
-  set(LLVM_LIBRARY_OUTPUT_INTDIR ${CMAKE_BINARY_DIR}/${CMAKE_CFG_INTDIR}/lib)
-
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${LLVM_CXXFLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${LLVM_LDFLAGS}")
-
-  set(LLVM_REQUIRES_RTTI TRUE)
-  set(LLVM_REQUIRES_EH TRUE)
-
-  include_directories(${LLVM_INCLUDE_DIRS})
-  link_directories(${LLVM_LIBRARY_DIRS})
-  add_definitions(${LLVM_DEFINITIONS})
-
-endif()
-
 
 install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/README.md DESTINATION .)
 # install all the licenses
@@ -154,13 +104,6 @@ if (EXISTS z3-prefix/src/z3/LICENSE.txt)
     RENAME z3_license.txt)
 endif()
 
-if (EXISTS ${CMAKE_CURRENT_BINARY_DIR}/llvm-prefix/src/llvm-build/bin/clang-3.6)
-  install (
-    PROGRAMS
-    ${CMAKE_CURRENT_BINARY_DIR}/llvm-prefix/src/llvm-build/bin/clang-3.6
-    DESTINATION bin)
-endif()
-
 if (EXISTS ${CMAKE_CURRENT_BINARY_DIR}/z3-prefix/src/z3/build)
   file(GLOB z3py
     ${CMAKE_CURRENT_BINARY_DIR}/z3-prefix/src/z3/build/*.py?
@@ -171,6 +114,9 @@ if (EXISTS ${CMAKE_CURRENT_BINARY_DIR}/z3-prefix/src/z3/build)
     )
   install(FILES ${z3py} DESTINATION lib/z3py)
 endif()
+
+find_package(OpenMP)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 
 find_package(Gmp REQUIRED)
 if (GMP_FOUND)
@@ -204,6 +150,7 @@ set(CMAKE_CXX_EXTENSIONS ON)
 add_definitions(-Wno-redeclared-class-member -Wno-sometimes-uninitialized)
 add_definitions(-Wno-covered-switch-default)
 add_definitions(-Wno-inconsistent-missing-override)
+set(CMAKE_CXX_STANDARD 11)
 if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
   add_definitions( -Wno-unused-local-typedefs)
 endif ()

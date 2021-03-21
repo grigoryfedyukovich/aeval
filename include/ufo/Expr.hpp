@@ -50,6 +50,9 @@ DM-0002198
 #include <boost/pool/pool_alloc.hpp>
 #include <boost/lexical_cast.hpp>
 
+#undef TRUE
+#undef FALSE
+
 #define mk_it_range boost::make_iterator_range
 
 #define NOP_BASE(NAME) struct NAME : public expr::Operator {};
