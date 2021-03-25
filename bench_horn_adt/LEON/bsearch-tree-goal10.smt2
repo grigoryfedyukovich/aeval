@@ -18,9 +18,17 @@
 	(=> (and (< d i) (tmember r i true)) (tmember (node d l r) i true))))
 (assert (forall ((d Int) (l Tree) (r Tree) (i Int)) 
 	(=> (and (< i d) (tmember l i true)) (tmember (node d l r) i true))))
-                              
-; conjecture
-(assert (forall ((i Int) (x Tree) (j Int) (r Bool) (s Bool) (t Bool) (y Tree))
-	(=> (tmember x j s) (= t (or (= i j) s)) (tinsert x i y) (tmember y j r) (not (= r t))))); G-bsearch-tree-10 
+
+(assert (forall ((i Int) (x Tree) (j Int) (r Bool) (s Bool) (t Bool) (y Tree) (a Bool) (b Bool))
+	(=> (and (tmember x j b) (tinsert x i y) (tmember y j true) (>= (- i j) 1) (not (= b true))) false)))
+
+(assert (forall ((i Int) (x Tree) (j Int) (r Bool) (s Bool) (t Bool) (y Tree) (a Bool) (b Bool))
+	(=> (and (tmember x j b) (tinsert x i y) (tmember y j true) (>= (- j i) 1) (not (= b true))) false)))
+
+(assert (forall ((i Int) (x Tree) (j Int) (r Bool) (s Bool) (t Bool) (y Tree) (a Bool) (b Bool))
+	(=> (and (tmember x j true) (tinsert x i y) (tmember y j a) (not (= a true))) false)))
+
+(assert (forall ((i Int) (x Tree) (j Int) (r Bool) (s Bool) (t Bool) (y Tree) (a Bool) (b Bool))
+	(=> (and (tmember x i b) (tinsert x i y) (tmember y i a) (not (= a true))) false)))
 
 (check-sat)
