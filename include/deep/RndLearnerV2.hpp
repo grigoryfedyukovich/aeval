@@ -106,7 +106,7 @@ namespace ufo
       m_smt_solver.assertExpr(lmApp);
 
       numOfSMTChecks++;
-      return !m_smt_solver.solve ();
+      return bool(!m_smt_solver.solve ());
     }
 
     void getIS(HornRuleExt* hr, ExprVector& candSet, bool deferPriorities)
@@ -170,7 +170,7 @@ namespace ufo
       m_smt_solver.assertExpr (mk<NEG>(candPrime));
 
       numOfSMTChecks++;
-      return (!m_smt_solver.solve ());
+      return bool(!m_smt_solver.solve ());
     }
 
     bool houdini (ExprSet& cands, bool deferPriorities, bool skipInit)

@@ -800,15 +800,20 @@ namespace ufo
 
         if (hr.isQuery) continue;
 
-        if (!checkCHC(hr, candidatesTmp))
+        boost::tribool b = checkCHC(hr, candidatesTmp);
+        if (b || indeterminate(b))
         {
           bool res2 = true;
           int ind = getVarIndex(hr.dstRelation, decls);
-          Expr model = u.getModel(hr.dstVars);
+
+          Expr model = NULL;
+          if (b) model = u.getModel(hr.dstVars);
+
           if (u.isModelSkippable(model, hr.dstVars, candidatesTmp))
           {
             // something went wrong with z3. do aggressive weakening (TODO: try bruteforce):
-            candidatesTmp[ind].clear();
+            // candidatesTmp[ind].clear();
+            candidatesTmp[ind].pop_back();
             res2 = false;
           }
           else
@@ -1358,7 +1363,8 @@ namespace ufo
       for (int i = ruleManager.wtoCHCs.size() - 1; i >= 0; i--)
       {
         auto & hr = *ruleManager.wtoCHCs[i];
-        if (!checkCHC(hr, candidates)) {
+        boost::tribool b = checkCHC(hr, candidates);
+        if (b) {
           if (!hr.isQuery)
           {
             outs() << "WARNING: Something went wrong" <<
@@ -1381,11 +1387,12 @@ namespace ufo
           else
             return false; // TODO: use this fact somehow
         }
+        else if (indeterminate(b)) return false;
       }
       return true;
     }
 
-    bool checkCHC (HornRuleExt& hr, map<int, ExprVector>& annotations)
+    boost::tribool checkCHC (HornRuleExt& hr, map<int, ExprVector>& annotations)
     {
       ExprSet exprs;
       exprs.insert(hr.body);
@@ -1417,7 +1424,7 @@ namespace ufo
         }
         exprs.insert(disjoin(negged, m_efac));
       }
-      return !u.isSat(exprs);
+      return u.isSat(exprs);
     }
 
     // it used to be called initArrayStuff, but now it does more stuff than just for arrays
@@ -1433,7 +1440,8 @@ namespace ufo
       int invNum = getVarIndex(rel, decls);
 
       prefs[invNum] = pref;
-      ssas[invNum] = replaceAll(bnd.toExpr(cycle), bnd.bindVars.back(), dstVars);
+      Expr e = bnd.toExpr(cycle);
+      ssas[invNum] = replaceAll(e, bnd.bindVars.back(), dstVars);
 
       if (iterators[invNum] != NULL) return;    // GF: TODO more sanity checks (if needed)
 

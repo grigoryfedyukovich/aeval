@@ -169,7 +169,7 @@ namespace ufo
         for (auto &a : traces)
         {
           num_traces++;
-          unsat = !u.isSat(toExpr(a));
+          unsat = bool(!u.isSat(toExpr(a)));
           if (!unsat) break;
         }
       }
@@ -226,7 +226,7 @@ namespace ufo
       for (int i = 1; i < bnd2; i++) gen_trace.push_back(k_ind);
       gen_trace.push_back(pr_ind);
       Expr q = toExpr(gen_trace);
-      bool res = !u.isSat(q);
+      bool res = bool(!u.isSat(q));
 
       if (bnd2 == 2) inv = mkNeg(pr.body);
 

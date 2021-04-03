@@ -413,6 +413,8 @@ namespace ufo
     {
       if (model == NULL) return true;
 
+      if (containsOp<EXISTS>(model) || containsOp<FORALL>(model)) return true;
+      
       for (auto v: vars)
       {
         if (!containsOp<ARRAY_TY>(v)) continue;

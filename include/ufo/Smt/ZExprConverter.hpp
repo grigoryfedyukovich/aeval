@@ -6,7 +6,6 @@
 // --  used for CL options
 #include "Z3n.hpp"
 
-#include "llvm/Support/raw_ostream.h"
 #include "ufo/ExprLlvm.hpp"
 
 namespace ufo
@@ -18,7 +17,7 @@ namespace ufo
     static z3::ast marshal (Expr e, z3::context &ctx,
 			    C &cache, expr_ast_map &seen)
     {
-      llvm::errs () << "Cannot marshal: " << *e << "\n";
+      errs () << "Cannot marshal: " << *e << "\n";
       assert (0); exit (1);
     }
   };
@@ -29,7 +28,7 @@ namespace ufo
     static Expr unmarshal (const z3::ast &a, ExprFactory &efac,
 			  C &cache, ast_expr_map &seen)
     {
-      llvm::errs () << "Cannot unmarshal: " << lexical_cast<std::string> (a) << "\n";
+      errs () << "Cannot unmarshal: " << lexical_cast<std::string> (a) << "\n";
       assert (0); exit (1);
     }
 

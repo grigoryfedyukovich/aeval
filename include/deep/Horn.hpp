@@ -87,7 +87,7 @@ namespace ufo
     map<Expr, int> iterator;
     bool hasAnyArrays;
 
-    CHCs(ExprFactory &efac, EZ3 &z3) : u(efac), m_efac(efac), m_z3(z3)  {};
+    CHCs(ExprFactory &efac, EZ3 &z3) : u(efac), m_efac(efac), m_z3(z3), hasAnyArrays(false) {};
 
     bool isFapp (Expr e)
     {
@@ -990,7 +990,7 @@ namespace ufo
         fp.addRule(allVars, boolop::limp (mk<AND>(pre, r.body), r.head));
       }
       try {
-        success = !fp.query(errApp);
+        success = bool(!fp.query(errApp));
       } catch (z3::exception &e){
         char str[3000];
         strncpy(str, e.msg(), 300);

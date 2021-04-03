@@ -339,7 +339,7 @@ namespace ufo
         }
 
         m_smt_safety_solvers[num-1].assertExpr(invApp);
-        safety_progress[num-1] = !m_smt_safety_solvers[num-1].solve ();
+        safety_progress[num-1] = bool(!m_smt_safety_solvers[num-1].solve ());
 
         numOfSMTChecks++;
       }
