@@ -45,8 +45,24 @@ char * getSmtFileName(int num, int argc, char ** argv)
   return NULL;
 }
 
+void printUsage()
+{
+  outs() << "Usage: aeval <file1.smt2> [file2.smt2] [options]\n";
+  outs() << "  Options:\n";
+  outs() << "    --skol\n";
+  outs() << "    --all-inclusive\n";
+  outs() << "    --compact\n";
+  outs() << "    --split\n";
+}
+
 int main (int argc, char ** argv)
 {
+
+  if(getBoolValue("--help", false, argc, argv) || argc == 1)
+  {
+    printUsage();
+    return 0;
+  }
 
   ExprFactory efac;
   EZ3 z3(efac);

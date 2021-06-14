@@ -1458,13 +1458,13 @@ namespace ufo
                            simplifyBool(simplifyArithm(ae.getSeparateSkol(evar)))));
           u.serialize_formula(sepSkols);
           if (debug) outs () << "Sanity check [split]: " <<
-            u.implies(mk<AND>(s, conjoin(sepSkols, s->getFactory())), t_orig) << "\n";
+            (bool)(u.implies(mk<AND>(s, conjoin(sepSkols, s->getFactory())), t_orig)) << "\n";
         }
         else
         {
           outs() << "\nextracted skolem:\n";
           u.serialize_formula(simplifyBool(simplifyArithm(skol)));
-          if (debug) outs () << "Sanity check: " << u.implies(mk<AND>(s, skol), t_orig) << "\n";
+          if (debug) outs () << "Sanity check: " << (bool)(u.implies(mk<AND>(s, skol), t_orig)) << "\n";
         }
       }
     }
@@ -1530,7 +1530,7 @@ namespace ufo
     if (debug)
     {
       outs () << "Sanity check [all-inclusive]: " <<
-        u.implies(mk<AND>(s, skol), t_init) << "\n";
+        (bool)(u.implies(mk<AND>(s, skol), t_init)) << "\n";
     }
     outs () << "Result: valid\n\nextracted skolem:\n";
     u.serialize_formula(skol);
