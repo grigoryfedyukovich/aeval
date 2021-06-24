@@ -115,7 +115,7 @@ namespace ufo
     {
       if (isOpX<TRUE>(b)) return true;
       if (isOpX<FALSE>(a)) return true;
-      return ! isSat(a, mkNeg(b));
+      return bool(! isSat(a, mkNeg(b)));
     }
 
     /**
