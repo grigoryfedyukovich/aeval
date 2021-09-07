@@ -25,6 +25,8 @@ namespace ufo
     int number_decls;
     bool givePriority = false;
     bool ignoreBaseVar = false;
+    std::map<Expr,ExprSet> definitions;
+    std::map<Expr,ExprSet> lemmas;
 
   public:
     CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, ExprVector &_assms, vector<HornRuleExt> &_chcs, bool _nonadtPriority = false, bool _ignoreBase = false) :
@@ -150,63 +152,125 @@ namespace ufo
       return destination;
     }
 
-    bool createQueries() {
+    Expr createAssumption(HornRuleExt chc) {
+      ExprVector cnj;
+      ExprMap matching;
+      createLeftConjs(chc, cnj);
+      findMatchingFromBody(chc, matching, cnj);
+      Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
+      int ind;
+      if (decls.find(chc.dstRelation) != decls.end()) {
+        destination = createDestination(chc);
+      }
+      Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
+      asmpt = replaceAll(asmpt, matching);
+
+      // trying substitute equalities from left side to the right one
+      matching.clear();
+      Expr left = asmpt->left();
+      findMatchingFromLeftSide(left, matching);
+
+      // outs() << *asmpt << "\n";
+      asmpt = replaceAll(asmpt, matching);
+      asmpt = simplifyArithm(asmpt);
+      asmpt = simplifyBool(asmpt);
+      if (asmpt->arity() > 0) {
+        asmpt = createQuantifiedFormula(asmpt, constructors);
+      }
+      return asmpt;
+    }
+
+    Expr createGoal(HornRuleExt chc) {
+      ExprVector cnj;
+      ExprMap matching;
+      createLeftConjs(chc, cnj);
+      findMatchingFromBody(chc, matching, cnj);
+      Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
+      ExprVector vars = chc.dstVars;
+      if (decls.find(chc.dstRelation) != decls.end()) {
+        destination = createDestination(chc);
+      }
+      Expr goal = mk<IMPL>(conjoin(cnj, efac), destination);
+      goal = replaceAll(goal, matching);
+      goal = simplifyArithm(goal);
+      goal = simplifyBool(goal);
+      return goal;
+    }
+
+    bool createAndCheckDefiniion() {
+
+    }
+
+    bool createAndCheckInterpretaions() {
+      // 1. add cycle for all chcs with decl destination to find the definition
+      // 2. ite, merge CHCs 
+      // 3. 
+
       // creating assumptions
       for (auto & decl : ordered_decls) {
+        vector<HornRuleExt> base_chcs;
+        vector<HornRuleExt> ind_chcs;
         for (auto & chc : chcs) {
           if (chc.dstRelation == decl) {
-            ExprVector cnj;
-            ExprMap matching;
-            createLeftConjs(chc, cnj);
-            findMatchingFromBody(chc, matching, cnj);
-            Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
-            int ind;
-            if (decls.find(chc.dstRelation) != decls.end()) {
-              destination = createDestination(chc);
+            if (chc.isFact) {
+              base_chcs.push_back(chc);
             }
-            Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
-            asmpt = replaceAll(asmpt, matching);
-
-            // trying substitute equalities from left side to the right one
-            matching.clear();
-            Expr left = asmpt->left();
-            findMatchingFromLeftSide(left, matching);
-
-            // outs() << *asmpt << "\n";
-            asmpt = replaceAll(asmpt, matching);
-            asmpt = simplifyArithm(asmpt);
-            asmpt = simplifyBool(asmpt);
-            if (asmpt->arity() > 0) {
-              asmpt = createQuantifiedFormula(asmpt, constructors);
+            else {
+              ind_chcs.push_back(chc);
             }
-            // outs() << "new assumption: " << *asmpt << "\n";
+          }
+        }
+        // Find possible interpretations
+        ExprSet cur_definitions;
+        ExprSet cur_lemmas;
+        int b_ind = 0;
+        int i_ind = 0;
+
+        for (auto & chc : chcs) {
+          if (chc.dstRelation == decl & chc.isFact) {
+            Expr asmpt = createAssumption(chc);
+            cur_definitions.insert(asmpt);
             assumptions.push_back(asmpt);
           }
         }
-        for (auto & chc : chcs) {
-          if (chc.dstRelation == decl) {
-            ExprVector cnj;
-            ExprMap matching;
-            createLeftConjs(chc, cnj);
-            findMatchingFromBody(chc, matching, cnj);
-            Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
-            ExprVector vars = chc.dstVars;
-            if (decls.find(chc.dstRelation) != decls.end()) {
-              destination = createDestination(chc);
-            }
-            Expr goal = mk<IMPL>(conjoin(cnj, efac), destination);
-            goal = replaceAll(goal, matching);
-            goal = simplifyArithm(goal);
-            goal = simplifyBool(goal);
+        for (auto & definitionChc : chcs) {
+          bool foundRecursiveDefinition = true;
+          if (definitionChc.dstRelation == decl & !definitionChc.isFact) {
+            Expr asmpt = createAssumption(definitionChc);
+
             ExprVector current_assumptions = assumptions;
-            if (!prove (current_assumptions, goal)) {
-              return false;
+            current_assumptions.push_back(asmpt);
+            for (auto & chc : chcs) {
+              if (chc.dstRelation == decl) {
+                Expr goal = createGoal(chc);
+                if (!prove (current_assumptions, goal)) {
+                  foundRecursiveDefinition = false;
+                  cur_lemmas.clear();
+                  break;
+                }
+                else if (!chc.isFact) {
+                  Expr lemma = createAssumption(chc);
+                  cur_lemmas.insert(lemma);
+                }
+              }
             }
+            if (foundRecursiveDefinition) {
+              cur_definitions.insert(asmpt);
+              assumptions.push_back(asmpt);
+              break;
+            }
+          }
+          if (!foundRecursiveDefinition) {
+            return false;
+          }
+          else {
+            definitions[decl] = cur_definitions;
+            lemmas[decl] = cur_lemmas;
           }
         }
       }
 
-      // creating queries for ADT-ind
+      // creating goals from queries for ADT-ind
       for (auto & chc : chcs) {
         if (chc.isQuery) {
           Expr destination;
@@ -293,15 +357,15 @@ namespace ufo
 //           }
 //           outs() << "goal: \n";
 //           outs() << *goal << "\n";
-//           goal = createQuantifiedFormula(goal, constructors);
+           goal = createQuantifiedFormula(goal, constructors);
           if (!prove (current_assumptions, goal)) {
             // outs() << "CANT PROVE" << *goal << "\n";
             return false;
           }
           else {
-             if (goal->arity() > 0) {
-               goal = createQuantifiedFormula(goal, constructors);
-             }
+//             if (goal->arity() > 0) {
+//               goal = createQuantifiedFormula(goal, constructors);
+//             }
             assumptions.push_back(goal);
           }
         }
@@ -392,12 +456,13 @@ namespace ufo
       }
     }
 
-    bool returnValues(int idx, std::map<Expr,int> &buf) {
+    bool findInterpretations(int idx, std::map<Expr,int> &buf) {
       if (idx >= ordered_decls.size()) {
         values_inds = buf;
         assumptions.clear();
-        return createQueries();
+        return createAndCheckInterpretaions();
       }
+      // Get the possible version of return variables
       Expr cur = ordered_decls[idx];
       for (auto & chc : chcs) {
         if (chc.dstRelation == cur) {
@@ -413,7 +478,7 @@ namespace ufo
           for (int i = idxs.size() - 1; i >= 0; --i) {
             buf[chc.dstRelation->left()] = idxs[i];
             // outs() << *chc.dstRelation->left() << " " << idxs[i] << "\n";
-            if (returnValues(idx + 1, buf))
+            if (findInterpretations(idx + 1, buf))
               return true;
           }
           break;
@@ -423,64 +488,15 @@ namespace ufo
     }
 
     bool solve() {
-      // find the return value for uninterpreted symbols (keep it in values_inds map)
       int index = 0;
       for (auto & decl: decls) {
         // outs() << *decl << "\n";
+        // Order current uninterpreted predicate symbols
         ExprSet cur_decls;
         orderDecls(decl, cur_decls);
       }
       std::map<Expr,int> buf;
-      return returnValues(0, buf);
-      // for (auto & decl: decls) {
-      //     if (decl->arity() <= 3) {
-      //         continue;
-      //     }
-      //       for (auto & chc : chcs) {
-      //         if (chc.dstRelation == decl && !chc.isFact) {
-      //           // TODO: think about return value when there are only adt vars
-      //           // std::vector<size_t> adt_inds;
-      //           size_t vars_size = chc.dstRelation->arity();
-      //           // bool found = false;
-      //           // for (size_t i = vars_size - 2; i > 0; --i) {
-      //           //   bool is_adt = false;
-      //           //   for (auto & adt : adts) {
-      //           //     if ((*chc.dstRelation)[i] == adt) {
-      //           //       is_adt = true;
-      //           //       adt_inds.push_back(i - 1);
-      //           //       break;
-      //           //     }
-      //           //   }
-      //           //   if (!is_adt) {
-      //           //     values_inds[chc.dstRelation->left()] = i - 1;
-      //           //     found = true;
-      //           //     break;
-      //           //   }
-      //           // }
-      //           // if (!found) {
-      //           //   for (int i = 0; i < chc.srcRelations.size(); i++) {
-      //           //     if (chc.srcRelations[i] == decl) {
-      //           //       for (int j = 0; j < adt_inds.size(); ++j) {
-      //           //         size_t ind = adt_inds[j];
-      //           //         Expr eq1 = mk<EQ>(chc.srcVars[0][ind], chc.dstVars[ind]);
-      //           //         Expr eq2 = mk<EQ>(chc.dstVars[ind], chc.srcVars[0][ind]);
-      //           //         if (!contains(chc.body, eq1) && !contains(chc.body, eq2)) {
-      //           //           values_inds[chc.dstRelation->left()] = ind;
-      //           //           found = true;
-      //           //           break;
-      //           //         }
-      //           //       }
-      //           //       break;
-      //           //     }
-      //           //   }
-      //           // }
-      //           // if (!found) {
-      //           values_inds[chc.dstRelation->left()] = vars_size - 3;
-      //           // }
-      //           break;
-      //       }
-      //   }
-      // }
+      return findInterpretations(0, buf);
     }
 
     bool solveArr(){
@@ -579,6 +595,32 @@ namespace ufo
 
     for (auto & a : z3.getAdtConstructors()) {
       constructors.push_back(regularizeQF(a));
+      Expr type = a->last()
+      bool ind = false;
+      for (int i = 0; i < a->arity() - 1; i++)
+      {
+        if (a->last() == a->arg(i))
+        {
+          ind = true;
+          if (indConstructors[type] != NULL && indConstructors[type] != a)
+          {
+            outs () << "Several inductive constructors are not supported\n";
+            exit(1);
+          }
+          indConstructors[type] = a;
+        }
+      }
+      if (!ind)
+      {
+        if (baseConstructors[type] != NULL && baseConstructors[type] != a)
+        {
+          outs () << "Several base constructors are not supported\n";
+          exit(1);
+        }
+        baseConstructors[type] = a;
+      }
+      outs() << *a <<"\n";
+      outs() << *a->last() <<"\n";
       adts.insert(a->last());
     }
 
