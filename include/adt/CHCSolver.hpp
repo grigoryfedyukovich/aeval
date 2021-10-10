@@ -28,6 +28,14 @@ namespace ufo
     std::map<Expr,ExprSet> definitions;
     std::map<Expr,ExprSet> lemmas;
 
+    map<Expr, Expr> baseConstructors;
+    map<Expr, Expr> indConstructors;
+
+    map<Expr, Expr> baseDefinitions;
+    map<Expr, Expr> indDefinitions;
+
+    map<Expr, int> inductiveVars;
+
   public:
     CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, ExprVector &_assms, vector<HornRuleExt> &_chcs, bool _nonadtPriority = false, bool _ignoreBase = false) :
       constructors(_constructors), adts(_adts), efac(_efac), decls(_decls), assumptions(_assms), chcs(_chcs), givePriority(_nonadtPriority), ignoreBaseVar(_ignoreBase) {}
@@ -197,8 +205,86 @@ namespace ufo
       return goal;
     }
 
-    bool createAndCheckDefiniion() {
+    bool createAndCheckDefiniion(Expr &decl) {
+      ExprVector current_assumptions = assumptions;
+      for (auto & chc : chcs) {
+        if (chc.dstRelation == decl && chc.isFact) {
+          for (int i = 0; i < chc.dstVars.size(); ++i) {
+            // inductive variable should be an adt
+            if (adts.find(bind::typeOf(chc.dstVars[i])) != adts.end()) {
+              Expr baseConstructor = baseConstructors[bind::typeOf(chc.dstVars[i])];
+              int baseConstructorArity = baseConstructor->arity() - 1;
+              for(int j = 0; j < chc.body->arity(); ++j) {
+                Expr body_elem = chc.body->arg(j);
+                if (isOpX<EQ>(body_elem)) {
+                  if ((body_elem->left() == chc.dstVars[i] && body_elem->right()->arity() == baseConstructorArity) ||
+                    (body_elem->right() == chc.dstVars[i] && body_elem->left()->arity() == baseConstructorArity)) {
+                    
+                    Expr base_asmpt = createAssumption(chc);
+                    baseDefinitions[decl] = base_asmpt;
+                    outs() << "base: " << *base_asmpt << "\n";
+                    current_assumptions.push_back(base_asmpt);
 
+                    Expr indConstructor = indConstructors[bind::typeOf(chc.dstVars[i])];
+                    if (indConstructor == NULL) {
+                      assumptions.push_back(base_asmpt);
+                      return true;
+                    }
+                    int indConstructorArity = indConstructor->arity() - 1;
+                    ExprVector lemmas;
+
+                    // we should check that this variable is inductive in inductive rule
+                    for (auto & ind_chc : chcs) {
+                      if (ind_chc.dstRelation == decl && !ind_chc.isFact) {
+                        for (int k = 0; k < ind_chc.srcRelations.size(); ++k) {
+                          if (ind_chc.srcRelations[k] == decl) {
+                            for(int m = 0; m < ind_chc.body->arity(); ++m) {
+                              Expr ind_body_elem = ind_chc.body->arg(m);
+                              if (isOpX<EQ>(ind_body_elem)) {
+                                // TODO: add comparison of src vars with conctructor
+                                if ((ind_body_elem->left() == ind_chc.dstVars[k] && ind_body_elem->right()->arity() == indConstructorArity) ||
+                                  (ind_body_elem->right() == ind_chc.dstVars[i] && ind_body_elem->left()->arity() == indConstructorArity)) {
+                                  Expr ind_asmpt = createAssumption(ind_chc);
+                                  outs() << "ind: " << *ind_asmpt << "\n";
+                                  indDefinitions[decl] =  ind_asmpt;
+                                  current_assumptions.push_back(ind_asmpt);
+                                  bool foundRecursiveDefinition = true;
+                                  // We should check that for all rules (including non-definitive) this definition is correct
+                                  for (auto & rule : chcs) {
+                                    if (rule.dstRelation == decl) {
+                                      Expr goal = createGoal(rule);
+                                      if (!prove (current_assumptions, goal)) {
+                                        foundRecursiveDefinition = false;
+                                        break;
+                                      }
+                                      else {
+                                        lemmas.push_back(goal);
+                                      }
+                                    }
+                                  }
+                                  if (foundRecursiveDefinition == true) {
+                                    outs() << "lemmas: \n";
+                                    for (auto & lemma : lemmas) {
+                                      outs() << *lemma << "\n";
+                                      assumptions.push_back(lemma);
+                                    }
+                                    return true;
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return false;
     }
 
     bool createAndCheckInterpretaions() {
@@ -208,67 +294,7 @@ namespace ufo
 
       // creating assumptions
       for (auto & decl : ordered_decls) {
-        vector<HornRuleExt> base_chcs;
-        vector<HornRuleExt> ind_chcs;
-        for (auto & chc : chcs) {
-          if (chc.dstRelation == decl) {
-            if (chc.isFact) {
-              base_chcs.push_back(chc);
-            }
-            else {
-              ind_chcs.push_back(chc);
-            }
-          }
-        }
-        // Find possible interpretations
-        ExprSet cur_definitions;
-        ExprSet cur_lemmas;
-        int b_ind = 0;
-        int i_ind = 0;
-
-        for (auto & chc : chcs) {
-          if (chc.dstRelation == decl & chc.isFact) {
-            Expr asmpt = createAssumption(chc);
-            cur_definitions.insert(asmpt);
-            assumptions.push_back(asmpt);
-          }
-        }
-        for (auto & definitionChc : chcs) {
-          bool foundRecursiveDefinition = true;
-          if (definitionChc.dstRelation == decl & !definitionChc.isFact) {
-            Expr asmpt = createAssumption(definitionChc);
-
-            ExprVector current_assumptions = assumptions;
-            current_assumptions.push_back(asmpt);
-            for (auto & chc : chcs) {
-              if (chc.dstRelation == decl) {
-                Expr goal = createGoal(chc);
-                if (!prove (current_assumptions, goal)) {
-                  foundRecursiveDefinition = false;
-                  cur_lemmas.clear();
-                  break;
-                }
-                else if (!chc.isFact) {
-                  Expr lemma = createAssumption(chc);
-                  cur_lemmas.insert(lemma);
-                }
-              }
-            }
-            if (foundRecursiveDefinition) {
-              cur_definitions.insert(asmpt);
-              assumptions.push_back(asmpt);
-              break;
-            }
-          }
-          if (!foundRecursiveDefinition) {
-            return false;
-          }
-          else {
-            definitions[decl] = cur_definitions;
-            lemmas[decl] = cur_lemmas;
-          }
-        }
-      }
+        createAndCheckDefiniion(decl);
 
       // creating goals from queries for ADT-ind
       for (auto & chc : chcs) {
@@ -394,18 +420,25 @@ namespace ufo
       return -1;
     }
 
-    void orderDecls(Expr decl, ExprSet &cur_decls) {
+    // result is written to ordered_decls
+    // cur_decls is used to find the mutual recursion
+    bool orderDecls(Expr decl, ExprSet &cur_decls) {
+      // Already contains this decl
       if (std::find(ordered_decls.begin(), ordered_decls.end(), decl) != ordered_decls.end())
-        return;
+        return true;
       cur_decls.insert(decl);
       for (auto & chc : chcs) {
         if (chc.dstRelation == decl && !chc.isFact) {
           for (int i = 0; i < chc.srcRelations.size(); i++) {
+            // if the src symbol is already in ordered_decls do nothing
             if (chc.srcRelations[i] != decl && std::find(ordered_decls.begin(), ordered_decls.end(), chc.srcRelations[i]) == ordered_decls.end()) {
+              // there is a mutual recursion, for now we cannot handle this
               if (cur_decls.find(chc.srcRelations[i]) != cur_decls.end()) {
-                ordered_decls.push_back(chc.srcRelations[i]);
+                outs () << "could not order predicates -- mutual recursion is not supported\n";
+                return false;
               }
               else {
+                // current predicate depends on another, so we need to push this another predicate earlier
                 orderDecls(chc.srcRelations[i], cur_decls);
               }
             }
@@ -413,7 +446,7 @@ namespace ufo
         }
       }
       ordered_decls.push_back(decl);
-
+      return true;
     }
 
     // Get indexes in right order and remove the base index
@@ -456,6 +489,35 @@ namespace ufo
       }
     }
 
+    void setConstructors() {
+      for (auto & a : constructors) {
+        Expr type = a->last();
+        bool ind = false;
+        for (int i = 0; i < a->arity() - 1; i++)
+        {
+          if (a->last() == a->arg(i))
+          {
+            ind = true;
+            if (indConstructors[type] != NULL && indConstructors[type] != a)
+            {
+              outs () << "Several inductive constructors are not supported\n";
+              exit(1);
+            }
+            indConstructors[type] = a;
+          }
+        }
+        if (!ind)
+        {
+          if (baseConstructors[type] != NULL && baseConstructors[type] != a)
+          {
+            outs () << "Several base constructors are not supported\n";
+            exit(1);
+          }
+          baseConstructors[type] = a;
+        } 
+      }
+    }
+
     bool findInterpretations(int idx, std::map<Expr,int> &buf) {
       if (idx >= ordered_decls.size()) {
         values_inds = buf;
@@ -488,13 +550,14 @@ namespace ufo
     }
 
     bool solve() {
-      int index = 0;
+      // Order current uninterpreted predicate symbols
       for (auto & decl: decls) {
         // outs() << *decl << "\n";
-        // Order current uninterpreted predicate symbols
         ExprSet cur_decls;
-        orderDecls(decl, cur_decls);
+        if (!orderDecls(decl, cur_decls))
+          return false;
       }
+      setConstructors();
       std::map<Expr,int> buf;
       return findInterpretations(0, buf);
     }
@@ -586,7 +649,7 @@ namespace ufo
     CHCs ruleManager(efac, z3);
     ExprSet adts;
     ruleManager.parse(smt_file);
-//    ruleManager.print();
+   ruleManager.print();
 
     ExprVector constructors;
     ExprVector assumptions;
@@ -595,30 +658,6 @@ namespace ufo
 
     for (auto & a : z3.getAdtConstructors()) {
       constructors.push_back(regularizeQF(a));
-      Expr type = a->last()
-      bool ind = false;
-      for (int i = 0; i < a->arity() - 1; i++)
-      {
-        if (a->last() == a->arg(i))
-        {
-          ind = true;
-          if (indConstructors[type] != NULL && indConstructors[type] != a)
-          {
-            outs () << "Several inductive constructors are not supported\n";
-            exit(1);
-          }
-          indConstructors[type] = a;
-        }
-      }
-      if (!ind)
-      {
-        if (baseConstructors[type] != NULL && baseConstructors[type] != a)
-        {
-          outs () << "Several base constructors are not supported\n";
-          exit(1);
-        }
-        baseConstructors[type] = a;
-      }
       outs() << *a <<"\n";
       outs() << *a->last() <<"\n";
       adts.insert(a->last());
