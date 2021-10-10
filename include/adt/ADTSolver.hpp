@@ -1837,7 +1837,7 @@ namespace ufo
       return;
     }
 
-    ADTSolver sol (goal, assumptions, constructors, 0, 0 maxDepth, maxGrow, mergingIts, earlySplit, verbose, useZ3, to);
+    ADTSolver sol (goal, assumptions, constructors, 0, 0, maxDepth, maxGrow, mergingIts, earlySplit, verbose, useZ3, to);
     bool res = isOpX<FORALL>(goal) ? sol.solve() : sol.solveNoind();
     outs () << (res ? "unsat\n" : "sat\n");
   }

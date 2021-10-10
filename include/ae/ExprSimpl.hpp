@@ -5005,6 +5005,45 @@ namespace ufo
     }
     if (upper) outs() << "\n";
   }
+
+  struct PlusMinusConstSwapper
+  {
+    PlusMinusConstSwapper (){};
+
+    Expr operator() (Expr exp)
+    {
+      if (isOpX<PLUS>(exp) || isOpX<MINUS>(exp))
+      {
+        ExprVector ops;
+        ExprVector newOps;
+        getAddTerm(exp, ops);
+        for (auto & a : ops)
+        {
+          if (isOpX<MPZ>(a)) newOps.push_back(additiveInverse(a));
+          else newOps.push_back(a);
+        }
+        return mkplus(newOps, exp->getFactory());
+      }
+      return exp;
+    }
+  };
+
+  inline static Expr swapPlusMinusConst (Expr exp)
+  {
+    RW<PlusMinusConstSwapper> rw(new PlusMinusConstSwapper());
+    return dagVisit (rw, exp);
+  }
+
+  bool static isConstPos(Expr e)
+  {
+    ExprVector ops;
+    getAddTerm(e, ops);
+    cpp_int i = 0;
+    for (auto & a : ops)
+      if (isOpX<MPZ>(a)) i += lexical_cast<cpp_int>(a);
+
+    return i>0;
+  }
 }
 
 #endif

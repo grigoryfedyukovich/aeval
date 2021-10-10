@@ -2358,16 +2358,6 @@ namespace expr
 
       inline Expr sortOf (Expr v) {return typeOf (v);}
 
-      Expr mkMPZ(boost::multiprecision::cpp_int a, ExprFactory& efac)
-      {
-        return mkTerm (mpz_class (boost::lexical_cast<std::string>(a)), efac);
-      }
-
-      Expr mkMPZ(int a, ExprFactory& efac)
-      {
-        return mkTerm (mpz_class (a), efac);
-      }
-
       struct FAPP_PS
       {
 	static inline void print (std::ostream &OS,
@@ -2464,15 +2454,6 @@ namespace expr
                 return isIntVar(e) || isRealVar(e) || isBoolVar(e) || isVar<ARRAY_TY> (e);
              }
        };
-
-      class IsSelect : public std::unary_function<Expr,bool>
-      {
-      public:
-        bool operator () (Expr e)
-        {
-          return isOpX<SELECT> (e);
-        }
-      };
 
       class IsSelect : public std::unary_function<Expr,bool>
       {
