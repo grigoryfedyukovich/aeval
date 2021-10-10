@@ -4,9 +4,9 @@
 (assert (forall ((x Lst)) (= (append nil x) x)))
 (assert (forall ((x Int) (y Lst) (z Lst)) (= (append (cons x y) z) (cons x (append y z)))))
 
-(declare-fun rev (Lst) Lst)
-(assert (= (rev nil) nil))
-(assert (forall ((x Int) (y Lst)) (= (rev (cons x y)) (append (rev y) (cons x nil)))))
+(declare-fun sum (Lst) Int)
+(assert (= (sum nil) 0))
+(assert (forall ((x Int) (y Lst)) (= (sum (cons x y)) (+ x (sum y)))))
 
-(assert (not (forall ((x Lst) (y Lst)) (= (rev (append x y)) (append (rev y) (rev x))))))
+(assert (not (forall ((x Lst) (y Lst)) (= (+ (sum x) (sum y)) (sum (append x y))))))
 (check-sat)

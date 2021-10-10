@@ -1,18 +1,16 @@
 cmake_minimum_required(VERSION 2.8.11)
 
-project (SeaHorn)
-set (SeaHorn_VERSION_MAJOR 0)
-set (SeaHorn_VERSION_MINOR 1)
-set (SeaHorn_VERSION_PATCH 0)
-set (SeaHorn_VERSION_TWEAK "rc3")
+project (ADTIND)
+set (ADTIND_VERSION_MAJOR 0)
+set (ADTIND_VERSION_MINOR 5)
 
 if (NOT PACKAGE_VERSION)
   set(PACKAGE_VERSION
-    "${SeaHorn_VERSION_MAJOR}.${SeaHorn_VERSION_MINOR}.${SeaHorn_VERSION_PATCH}")
-  if (DEFINED SeaHorn_VERSION_TWEAK)
-    set (PACKAGE_VERSION "${PACKAGE_VERSION}-${SeaHorn_VERSION_TWEAK}")
+    "${ADTIND_VERSION_MAJOR}.${ADTIND_VERSION_MINOR}.${ADTIND_VERSION_PATCH}")
+  if (DEFINED ADTIND_VERSION_TWEAK)
+    set (PACKAGE_VERSION "${PACKAGE_VERSION}-${ADTIND_VERSION_TWEAK}")
   endif()
-  set (SeaHorn_VERSION_INFO ${PACKAGE_VERSION})
+  set (ADTIND_VERSION_INFO ${PACKAGE_VERSION})
 endif()
 
 
@@ -29,7 +27,7 @@ list (APPEND CMAKE_MODULE_PATH
   "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 
-option (SEAHORN_STATIC_EXE "Static executable." OFF)
+option (ADTIND_STATIC_EXE "Static executable." OFF)
 
 set (CUSTOM_BOOST_ROOT "" CACHE PATH "Path to custom boost installation.")
 if (CUSTOM_BOOST_ROOT)
@@ -46,7 +44,7 @@ set (BOOST_COMPONENTS system)
 if (UNIT_TESTS)
   set (BOOST_COMPONENTS ${BOOST_COMPONENTS} unit_test_framework)
 endif()
-  find_package (Boost 1.67 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
+  find_package (Boost 1.71 REQUIRED COMPONENTS ${BOOST_COMPONENTS})
 if (Boost_FOUND)
   include_directories (${Boost_INCLUDE_DIRS})
 endif ()
@@ -54,7 +52,7 @@ endif ()
 include(ExternalProject)
 set_property(DIRECTORY PROPERTY EP_STEP_TARGETS configure build test)
 
-set (Z3_TAG "z3-4.8.4" CACHE STRING "Z3 git tag to use")
+set (Z3_TAG "z3-4.8.10" CACHE STRING "Z3 git tag to use")
 set (Z3_REPO "https://github.com/Z3Prover/z3.git" CACHE STRING "Z3 repo")
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
   set (Z3_DEBUG "-d")
@@ -76,7 +74,7 @@ ExternalProject_Add(z3
   LOG_INSTALL 1
   LOG_BUILD 1)
 
-find_package(Z3 4.3.2)
+find_package(Z3 4.8.1)
 if (NOT Z3_FOUND)
   ExternalProject_Get_Property (z3 INSTALL_DIR)
   set(Z3_ROOT ${INSTALL_DIR} CACHE PATH "Forced location of Z3" FORCE)
@@ -93,14 +91,14 @@ endif()
 install (FILES ${CMAKE_CURRENT_SOURCE_DIR}/README.md DESTINATION .)
 # install all the licenses
 install (FILES  ${CMAKE_CURRENT_SOURCE_DIR}/license.txt
-  DESTINATION share/doc/seahorn
-  RENAME seahorn_license.txt)
+  DESTINATION share/doc/ADTIND
+  RENAME ADTIND_license.txt)
 
 if (EXISTS z3-prefix/src/z3/LICENSE.txt)
   install (
     FILES
     ${CMAKE_CURRENT_BINARY_DIR}/z3-prefix/src/z3/LICENSE.txt
-    DESTINATION share/doc/seahorn
+    DESTINATION share/doc/ADTIND
     RENAME z3_license.txt)
 endif()
 
@@ -115,11 +113,6 @@ if (EXISTS ${CMAKE_CURRENT_BINARY_DIR}/z3-prefix/src/z3/build)
   install(FILES ${z3py} DESTINATION lib/z3py)
 endif()
 
-find_package(OpenMP)
-if (OPENMP_FOUND)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-endif()
-
 find_package(Gmp REQUIRED)
 if (GMP_FOUND)
   include_directories (${GMP_INCLUDE_DIR})
@@ -127,6 +120,12 @@ if (GMP_FOUND)
 else()
   set(GMP_LIB "")
   set(GMPXX_LIB "")
+endif()
+
+find_package(OpenMP)
+if (OPENMP_FOUND)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fopenmp")
 endif()
 
 install(DIRECTORY include/

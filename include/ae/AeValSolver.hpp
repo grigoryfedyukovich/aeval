@@ -235,7 +235,7 @@ namespace ufo
         }
 
         instantiations.push_back(conjoin(cnjs, efac));
-        if (debug) outs() << "Sanity check [" <<i << "]: " << u.implies(mk<AND> (s,mk<AND> (projections[i], instantiations[i])), t) << "\n";
+        if (debug) outs() << "Sanity check [" <<i << "]: " << (bool)u.implies(mk<AND> (s,mk<AND> (projections[i], instantiations[i])), t) << "\n";
       }
       Expr sk = mk<TRUE>(efac);
 
@@ -246,7 +246,7 @@ namespace ufo
 
       Expr skol = simplifiedAnd(skolSkope, sk);
 
-      if (true) outs() << "Sanity check: " << u.implies(mk<AND>(s, skol), t) << "\n";
+      if (true) outs() << "Sanity check: " << (bool)u.implies(mk<AND>(s, skol), t) << "\n";
 
       return skol;
     }
@@ -462,7 +462,7 @@ namespace ufo
     Expr getDefaultAssignment(Expr var)
     {
       if (bind::isBoolConst(var)) return mk<TRUE>(efac);
-      if (bind::isIntConst(var)) return mkTerm (mpz_class (0), efac);
+      if (bind::isIntConst(var)) return mkMPZ(0, efac);
       else           // that is, isRealConst(var) == true
         return mkTerm (mpq_class (0), efac);
     }
@@ -473,10 +473,10 @@ namespace ufo
     Expr getPlusConst(Expr e, bool isInt, cpp_int c)
     {
       if (isOpX<MPZ>(e) && isInt)
-        return mkTerm (mpz_class (string (c + boost::lexical_cast<cpp_int> (e))), efac);
+        return mkMPZ(c + boost::lexical_cast<cpp_int> (e), efac);
 
-      Expr ce = isInt ? mkTerm (mpz_class (string(c)), efac) :
-                        mkTerm (mpq_class (string(c)), efac);
+      Expr ce = isInt ? mkMPZ(c, efac) :
+                        mkTerm (mpq_class (lexical_cast<string>(c)), efac);
       return mk<PLUS>(e, ce);
     }
 
