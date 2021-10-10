@@ -56,9 +56,12 @@ namespace ufo
       return app;
     }
 
-    void createLeftConjs(HornRuleExt chc, ExprVector & cnj) {
+    void replaceDeclsInLeftPart(HornRuleExt chc, ExprVector & cnj) {
       for (int i = 0; i < chc.srcRelations.size(); i++) {
         if (decls.find(chc.srcRelations[i]) != decls.end()) {
+          // as we don't allow mutual recursion and decls are sorted, 
+          // we suppose that srcRelations doesn't contain predicates with unknown definition
+          // TODO: should check the assumption above 
           int ind = values_inds[chc.srcRelations[i]->left()];
           Expr app = createNewApp(chc, i, ind);
           Expr def = mk<EQ>(app, chc.srcVars[i][ind]);
@@ -71,50 +74,53 @@ namespace ufo
       }
     }
 
-    bool findMatchingFromBodyElement(HornRuleExt chc, Expr body_elem, ExprMap &matching) {
-      if (body_elem->left()->arity() == 1
-          && std::find(chc.dstVars.begin(), chc.dstVars.end(), body_elem->left()) != chc.dstVars.end()) {
-        matching[body_elem->left()] = body_elem->right();
+    bool findMatchingFromElement(HornRuleExt chc, Expr elem, ExprMap &matching) {
+      if (elem->left()->arity() == 1
+          && std::find(chc.dstVars.begin(), chc.dstVars.end(), elem->left()) != chc.dstVars.end()) {
+        matching[elem->left()] = elem->right();
         return true;
       }
-      else if (body_elem->right()->arity() == 1
-          && std::find(chc.dstVars.begin(), chc.dstVars.end(), body_elem->right()) != chc.dstVars.end()) {
-        matching[body_elem->right()] = body_elem->left();
+      else if (elem->right()->arity() == 1
+          && std::find(chc.dstVars.begin(), chc.dstVars.end(), elem->right()) != chc.dstVars.end()) {
+        matching[elem->right()] = elem->left();
         return true;
       }
-        for (auto & v : chc.dstVars) {
-          Expr ineq = ineqSimplifier(v, body_elem);
-          if (ineq->left() == v) {
-            matching[ineq->left()] = ineq->right();
-            return true;
-          }
+      for (auto & v : chc.dstVars) {
+        Expr ineq = ineqSimplifier(v, elem);
+        if (ineq->left() == v) {
+          matching[ineq->left()] = ineq->right();
+          return true;
         }
-        if ((body_elem->left()->arity() == 1) && !(isConsctructor(bind::fname(body_elem->left())))) {
-            matching[body_elem->left()] = body_elem->right();
-            return true;
-        }
-        else if ((body_elem->right()->arity() == 1) && !(isConsctructor(bind::fname(body_elem->right())))) {
-            matching[body_elem->right()] = body_elem->left();
-            return true;
-        }
+      }
+      if ((elem->left()->arity() == 1) && !(isConsctructor(bind::fname(elem->left())))) {
+          matching[elem->left()] = elem->right();
+          return true;
+      }
+      else if ((elem->right()->arity() == 1) && !(isConsctructor(bind::fname(elem->right())))) {
+          matching[elem->right()] = elem->left();
+          return true;
+      }
       return false;
     }
 
-    // find possible substitutions from body (add to cnj otherwise)
-    void findMatchingFromBody(HornRuleExt chc, ExprMap &matching, ExprVector &cnj) {
-      if (chc.body->arity() > 1 && !findMatchingFromBodyElement(chc, chc.body, matching)) {
-        for(int j = 0; j < chc.body->arity(); ++j) {
-          Expr body_elem = chc.body->arg(j);
-          if (!isOpX<EQ>(body_elem) || !findMatchingFromBodyElement(chc, body_elem, matching)) {
-            cnj.push_back(body_elem);
+    bool findMatchingFromRule(HornRuleExt chc, ExprMap &matching, Expr rule) {
+      if (isOpX<IMPL>(rule))
+      rule = rule->left();
+      bool wasChanged = false;
+      if (rule->arity() > 1) {
+        if (findMatchingFromElement(chc, rule, matching)) {
+          wasChanged = true;
+        }
+        else {
+          for(int j = 0; j < rule->arity(); ++j) {
+            Expr elem = rule->arg(j);
+            if (isOpX<EQ>(elem) && findMatchingFromElement(chc, elem, matching)) {
+              wasChanged = true;
+            }
           }
         }
       }
-      else {
-        if (!isOpX<EQ>(chc.body) || findMatchingFromBodyElement(chc, chc.body, matching)) {
-          cnj.push_back(chc.body);
-        }
-      }
+      return wasChanged;
     }
 
     bool isConsctructor(Expr elem) {
@@ -160,52 +166,29 @@ namespace ufo
       return destination;
     }
 
-    Expr createAssumption(HornRuleExt chc) {
+    Expr convertToFunction(HornRuleExt chc) {
       ExprVector cnj;
       ExprMap matching;
-      createLeftConjs(chc, cnj);
-      findMatchingFromBody(chc, matching, cnj);
+      replaceDeclsInLeftPart(chc, cnj);
       Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
-      int ind;
       if (decls.find(chc.dstRelation) != decls.end()) {
         destination = createDestination(chc);
       }
+      cnj.push_back(chc.body);
       Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
-      asmpt = replaceAll(asmpt, matching);
-
-      // trying substitute equalities from left side to the right one
-      matching.clear();
-      Expr left = asmpt->left();
-      findMatchingFromLeftSide(left, matching);
-
-      // outs() << *asmpt << "\n";
-      asmpt = replaceAll(asmpt, matching);
-      asmpt = simplifyArithm(asmpt);
-      asmpt = simplifyBool(asmpt);
+      while (findMatchingFromRule(chc, matching, asmpt)) {
+        asmpt = replaceAll(asmpt, matching);
+        asmpt = simplifyArithm(asmpt);
+        asmpt = simplifyBool(asmpt);
+        matching.clear();
+      }
       if (asmpt->arity() > 0) {
         asmpt = createQuantifiedFormula(asmpt, constructors);
       }
       return asmpt;
     }
 
-    Expr createGoal(HornRuleExt chc) {
-      ExprVector cnj;
-      ExprMap matching;
-      createLeftConjs(chc, cnj);
-      findMatchingFromBody(chc, matching, cnj);
-      Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
-      ExprVector vars = chc.dstVars;
-      if (decls.find(chc.dstRelation) != decls.end()) {
-        destination = createDestination(chc);
-      }
-      Expr goal = mk<IMPL>(conjoin(cnj, efac), destination);
-      goal = replaceAll(goal, matching);
-      goal = simplifyArithm(goal);
-      goal = simplifyBool(goal);
-      return goal;
-    }
-
-    bool createAndCheckDefiniion(Expr &decl) {
+    bool createAndCheckDefinition(Expr &decl) {
       ExprVector current_assumptions = assumptions;
       for (auto & chc : chcs) {
         if (chc.dstRelation == decl && chc.isFact) {
@@ -220,9 +203,8 @@ namespace ufo
                   if ((body_elem->left() == chc.dstVars[i] && body_elem->right()->arity() == baseConstructorArity) ||
                     (body_elem->right() == chc.dstVars[i] && body_elem->left()->arity() == baseConstructorArity)) {
                     
-                    Expr base_asmpt = createAssumption(chc);
+                    Expr base_asmpt = convertToFunction(chc);
                     baseDefinitions[decl] = base_asmpt;
-                    outs() << "base: " << *base_asmpt << "\n";
                     current_assumptions.push_back(base_asmpt);
 
                     Expr indConstructor = indConstructors[bind::typeOf(chc.dstVars[i])];
@@ -244,15 +226,14 @@ namespace ufo
                                 // TODO: add comparison of src vars with conctructor
                                 if ((ind_body_elem->left() == ind_chc.dstVars[k] && ind_body_elem->right()->arity() == indConstructorArity) ||
                                   (ind_body_elem->right() == ind_chc.dstVars[i] && ind_body_elem->left()->arity() == indConstructorArity)) {
-                                  Expr ind_asmpt = createAssumption(ind_chc);
-                                  outs() << "ind: " << *ind_asmpt << "\n";
+                                  Expr ind_asmpt = convertToFunction(ind_chc);
                                   indDefinitions[decl] =  ind_asmpt;
                                   current_assumptions.push_back(ind_asmpt);
                                   bool foundRecursiveDefinition = true;
                                   // We should check that for all rules (including non-definitive) this definition is correct
                                   for (auto & rule : chcs) {
                                     if (rule.dstRelation == decl) {
-                                      Expr goal = createGoal(rule);
+                                      Expr goal = convertToFunction(rule);
                                       if (!prove (current_assumptions, goal)) {
                                         foundRecursiveDefinition = false;
                                         break;
@@ -263,9 +244,7 @@ namespace ufo
                                     }
                                   }
                                   if (foundRecursiveDefinition == true) {
-                                    outs() << "lemmas: \n";
                                     for (auto & lemma : lemmas) {
-                                      outs() << *lemma << "\n";
                                       assumptions.push_back(lemma);
                                     }
                                     return true;
@@ -294,7 +273,7 @@ namespace ufo
 
       // creating assumptions
       for (auto & decl : ordered_decls) {
-        createAndCheckDefiniion(decl);
+        createAndCheckDefinition(decl);
 
         // creating goals from queries for ADT-ind
         for (auto & chc : chcs) {
@@ -650,7 +629,7 @@ namespace ufo
     CHCs ruleManager(efac, z3);
     ExprSet adts;
     ruleManager.parse(smt_file);
-   ruleManager.print();
+    ruleManager.print();
 
     ExprVector constructors;
     ExprVector assumptions;
@@ -659,8 +638,6 @@ namespace ufo
 
     for (auto & a : z3.getAdtConstructors()) {
       constructors.push_back(regularizeQF(a));
-      outs() << *a <<"\n";
-      outs() << *a->last() <<"\n";
       adts.insert(a->last());
     }
 
