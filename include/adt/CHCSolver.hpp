@@ -176,7 +176,7 @@ namespace ufo
       }
       cnj.push_back(chc.body);
       Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
-      while (findMatchingFromRule(chc, matching, asmpt)) {
+      while (!isOpX<EQ>(asmpt) && findMatchingFromRule(chc, matching, asmpt)) {
         asmpt = replaceAll(asmpt, matching);
         asmpt = simplifyArithm(asmpt);
         asmpt = simplifyBool(asmpt);
@@ -205,7 +205,7 @@ namespace ufo
                     
                     Expr base_asmpt = convertToFunction(chc);
                     baseDefinitions[decl] = base_asmpt;
-                    current_assumptions.push_back(base_asmpt);
+                    outs() << "base: " << *base_asmpt << "\n";
 
                     Expr indConstructor = indConstructors[bind::typeOf(chc.dstVars[i])];
                     if (indConstructor == NULL) {
@@ -227,13 +227,17 @@ namespace ufo
                                 if ((ind_body_elem->left() == ind_chc.dstVars[k] && ind_body_elem->right()->arity() == indConstructorArity) ||
                                   (ind_body_elem->right() == ind_chc.dstVars[i] && ind_body_elem->left()->arity() == indConstructorArity)) {
                                   Expr ind_asmpt = convertToFunction(ind_chc);
+                                  outs() << "ind: " << *ind_asmpt << "\n";
                                   indDefinitions[decl] =  ind_asmpt;
-                                  current_assumptions.push_back(ind_asmpt);
                                   bool foundRecursiveDefinition = true;
                                   // We should check that for all rules (including non-definitive) this definition is correct
                                   for (auto & rule : chcs) {
                                     if (rule.dstRelation == decl) {
                                       Expr goal = convertToFunction(rule);
+                                      current_assumptions.clear();
+                                      current_assumptions = assumptions;
+                                      current_assumptions.push_back(baseDefinitions[decl]);
+                                      current_assumptions.push_back(indDefinitions[decl]);
                                       if (!prove (current_assumptions, goal)) {
                                         foundRecursiveDefinition = false;
                                         break;
@@ -244,7 +248,9 @@ namespace ufo
                                     }
                                   }
                                   if (foundRecursiveDefinition == true) {
+                                    outs() << "lemmas: \n";
                                     for (auto & lemma : lemmas) {
+                                      outs() << *lemma << "\n";
                                       assumptions.push_back(lemma);
                                     }
                                     return true;
@@ -274,105 +280,105 @@ namespace ufo
       // creating assumptions
       for (auto & decl : ordered_decls) {
         createAndCheckDefinition(decl);
+      }
 
-        // creating goals from queries for ADT-ind
-        for (auto & chc : chcs) {
-          if (chc.isQuery) {
-            Expr destination;
-            ExprVector cnj;
-            ExprMap matching;
-            if (chc.body->arity() > 1) {
-              for(int j = 0; j < chc.body->arity(); ++j) {
-                Expr body_elem = chc.body->arg(j);
-                if (isOpX<NEG>(body_elem)) {
-                  destination = mkNeg(body_elem);
-                }
-                else {
-                  cnj.push_back(body_elem);
-                }
-              }
-            }
-            else {
-              destination = mkNeg(chc.body);
-            }
-            if (decls.find(destination->left()) != decls.end()) {
-              int ind = values_inds[destination->left()->left()];
-              ExprVector types;
-              ExprVector newVars;
-              for(int j = 1; j < destination->arity(); ++j) {
-                if (j - 1 != ind) {
-                  types.push_back(bind::typeOf(destination->arg(j)));
-                  newVars.push_back(destination->arg(j));
-                }
-              }
-              types.push_back(bind::typeOf(destination->arg(ind + 1)));
-              Expr rel = bind::fdecl (efac.mkTerm(destination->left()->left()->op()), types);
-              Expr baseApp = bind::fapp (rel, newVars);
-              // outs() << "DESTINATION " << *destination <<" " << destination->arity() << ind<<  "\n";
-              destination = mk<EQ>(baseApp, destination->arg(ind + 1));
-              // outs() << *destination << "\n";
-            }
-
-            for (int i = 0; i < chc.srcRelations.size(); i++) {
-              if (decls.find(chc.srcRelations[i]) != decls.end()) {
-                int ind = values_inds[chc.srcRelations[i]->left()];
-                Expr app = createNewApp(chc, i, ind);
-                matching[chc.srcVars[i][ind]] = app;
+      // creating goals from queries for ADT-ind
+      for (auto & chc : chcs) {
+        if (chc.isQuery) {
+          Expr destination;
+          ExprVector cnj;
+          ExprMap matching;
+          if (chc.body->arity() > 1) {
+            for(int j = 0; j < chc.body->arity(); ++j) {
+              Expr body_elem = chc.body->arg(j);
+              if (isOpX<NEG>(body_elem)) {
+                destination = mkNeg(body_elem);
               }
               else {
-                 Expr tmp = bind::fapp (chc.srcRelations[i], chc.srcVars[i]);
-                 cnj.push_back(tmp);
+                cnj.push_back(body_elem);
               }
             }
+          }
+          else {
+            destination = mkNeg(chc.body);
+          }
+          if (decls.find(destination->left()) != decls.end()) {
+            int ind = values_inds[destination->left()->left()];
+            ExprVector types;
+            ExprVector newVars;
+            for(int j = 1; j < destination->arity(); ++j) {
+              if (j - 1 != ind) {
+                types.push_back(bind::typeOf(destination->arg(j)));
+                newVars.push_back(destination->arg(j));
+              }
+            }
+            types.push_back(bind::typeOf(destination->arg(ind + 1)));
+            Expr rel = bind::fdecl (efac.mkTerm(destination->left()->left()->op()), types);
+            Expr baseApp = bind::fapp (rel, newVars);
+            // outs() << "DESTINATION " << *destination <<" " << destination->arity() << ind<<  "\n";
+            destination = mk<EQ>(baseApp, destination->arg(ind + 1));
+            // outs() << *destination << "\n";
+          }
 
-            Expr goal = replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching);
+          for (int i = 0; i < chc.srcRelations.size(); i++) {
+            if (decls.find(chc.srcRelations[i]) != decls.end()) {
+              int ind = values_inds[chc.srcRelations[i]->left()];
+              Expr app = createNewApp(chc, i, ind);
+              matching[chc.srcVars[i][ind]] = app;
+            }
+            else {
+               Expr tmp = bind::fapp (chc.srcRelations[i], chc.srcVars[i]);
+               cnj.push_back(tmp);
+            }
+          }
+
+          Expr goal = replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching);
+          matching.clear();
+          Expr left = goal->left();
+
+          // outs() << "GOAL: \n";
+          // outs() << *goal << "\n";
+          // findMatchingFromLeftSide(left, matching);
+          // goal = replaceAll(goal, matching);
+          // goal = simplifyBool(goal);
+          // matching.clear();
+
+          // outs() << "GOAL: \n";
+          // outs() << *goal << "\n";
+          findMatchingFromLeftSide(goal->left(), matching);
+          goal = replaceAll(goal, matching);
+          goal = simplifyBool(goal);
+          if (isOpX<IMPL>(goal)) {
             matching.clear();
-            Expr left = goal->left();
-
-            // outs() << "GOAL: \n";
-            // outs() << *goal << "\n";
-            // findMatchingFromLeftSide(left, matching);
-            // goal = replaceAll(goal, matching);
-            // goal = simplifyBool(goal);
-            // matching.clear();
 
             // outs() << "GOAL: \n";
             // outs() << *goal << "\n";
             findMatchingFromLeftSide(goal->left(), matching);
             goal = replaceAll(goal, matching);
+  //          goal = simplifyArithm(goal);
             goal = simplifyBool(goal);
-            if (isOpX<IMPL>(goal)) {
-              matching.clear();
+          }
 
-              // outs() << "GOAL: \n";
-              // outs() << *goal << "\n";
-              findMatchingFromLeftSide(goal->left(), matching);
-              goal = replaceAll(goal, matching);
-    //          goal = simplifyArithm(goal);
-              goal = simplifyBool(goal);
-            }
-
-            // if (goal->arity() > 0) {
-            //   goal = createQuantifiedFormula(goal, constructors);
-            // }
-            ExprVector current_assumptions = assumptions;
-  //           outs() << "assumptions:\n";
-  //           for (auto & a : current_assumptions) {
-  //             outs() << *a << "\n";
-  //           }
-  //           outs() << "goal: \n";
-  //           outs() << *goal << "\n";
-             goal = createQuantifiedFormula(goal, constructors);
-            if (!prove (current_assumptions, goal)) {
-              // outs() << "CANT PROVE" << *goal << "\n";
-              return false;
-            }
-            else {
-  //             if (goal->arity() > 0) {
-  //               goal = createQuantifiedFormula(goal, constructors);
-  //             }
-              assumptions.push_back(goal);
-            }
+          // if (goal->arity() > 0) {
+          //   goal = createQuantifiedFormula(goal, constructors);
+          // }
+          ExprVector current_assumptions = assumptions;
+//           outs() << "assumptions:\n";
+//           for (auto & a : current_assumptions) {
+//             outs() << *a << "\n";
+//           }
+//           outs() << "goal: \n";
+//           outs() << *goal << "\n";
+           goal = createQuantifiedFormula(goal, constructors);
+          if (!prove (current_assumptions, goal)) {
+            // outs() << "CANT PROVE" << *goal << "\n";
+            return false;
+          }
+          else {
+//             if (goal->arity() > 0) {
+//               goal = createQuantifiedFormula(goal, constructors);
+//             }
+            assumptions.push_back(goal);
           }
         }
       }
