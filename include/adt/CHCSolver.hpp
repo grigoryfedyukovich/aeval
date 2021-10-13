@@ -108,7 +108,7 @@ namespace ufo
       rule = rule->left();
       bool wasChanged = false;
       if (rule->arity() > 1) {
-        if (findMatchingFromElement(chc, rule, matching)) {
+        if (isOpX<EQ>(rule) && findMatchingFromElement(chc, rule, matching)) {
           wasChanged = true;
         }
         else {
@@ -209,6 +209,7 @@ namespace ufo
 
                     Expr indConstructor = indConstructors[bind::typeOf(chc.dstVars[i])];
                     if (indConstructor == NULL) {
+                      outs() << "HERE\n";
                       assumptions.push_back(base_asmpt);
                       return true;
                     }
@@ -220,42 +221,55 @@ namespace ufo
                       if (ind_chc.dstRelation == decl && !ind_chc.isFact) {
                         for (int k = 0; k < ind_chc.srcRelations.size(); ++k) {
                           if (ind_chc.srcRelations[k] == decl) {
-                            for(int m = 0; m < ind_chc.body->arity(); ++m) {
-                              Expr ind_body_elem = ind_chc.body->arg(m);
-                              if (isOpX<EQ>(ind_body_elem)) {
-                                // TODO: add comparison of src vars with conctructor
-                                if ((ind_body_elem->left() == ind_chc.dstVars[k] && ind_body_elem->right()->arity() == indConstructorArity) ||
-                                  (ind_body_elem->right() == ind_chc.dstVars[i] && ind_body_elem->left()->arity() == indConstructorArity)) {
-                                  Expr ind_asmpt = convertToFunction(ind_chc);
-                                  outs() << "ind: " << *ind_asmpt << "\n";
-                                  indDefinitions[decl] =  ind_asmpt;
-                                  bool foundRecursiveDefinition = true;
-                                  // We should check that for all rules (including non-definitive) this definition is correct
-                                  for (auto & rule : chcs) {
-                                    if (rule.dstRelation == decl) {
-                                      Expr goal = convertToFunction(rule);
-                                      current_assumptions.clear();
-                                      current_assumptions = assumptions;
-                                      current_assumptions.push_back(baseDefinitions[decl]);
-                                      current_assumptions.push_back(indDefinitions[decl]);
-                                      if (!prove (current_assumptions, goal)) {
-                                        foundRecursiveDefinition = false;
-                                        break;
-                                      }
-                                      else {
-                                        lemmas.push_back(goal);
-                                      }
-                                    }
-                                  }
-                                  if (foundRecursiveDefinition == true) {
-                                    outs() << "lemmas: \n";
-                                    for (auto & lemma : lemmas) {
-                                      outs() << *lemma << "\n";
-                                      assumptions.push_back(lemma);
-                                    }
-                                    return true;
+                            Expr elem = ind_chc.body;
+                            bool shouldBeChecked = false;
+                            if (isOpX<EQ>(elem)) {
+                              if ((elem->left() == ind_chc.dstVars[i] && elem->right()->arity() == indConstructorArity) ||
+                                  (elem->right() == ind_chc.dstVars[i] && elem->left()->arity() == indConstructorArity)) {
+                                shouldBeChecked = true;
+                              }
+                            }
+                            else {
+                              for(int m = 0; m < ind_chc.body->arity(); ++m) {
+                                Expr ind_body_elem = ind_chc.body->arg(m);
+                                if (isOpX<EQ>(ind_body_elem)) {
+                                  // TODO: add comparison of src vars with conctructor
+                                  if ((ind_body_elem->left() == ind_chc.dstVars[i] && ind_body_elem->right()->arity() == indConstructorArity) ||
+                                    (ind_body_elem->right() == ind_chc.dstVars[i] && ind_body_elem->left()->arity() == indConstructorArity)) {
+                                    shouldBeChecked = true;
                                   }
                                 }
+                              }
+                            }
+                            if (shouldBeChecked) {
+                              Expr ind_asmpt = convertToFunction(ind_chc);
+                              outs() << "ind: " << *ind_asmpt << "\n";
+                              indDefinitions[decl] =  ind_asmpt;
+                              bool foundRecursiveDefinition = true;
+                              // We should check that for all rules (including non-definitive) this definition is correct
+                              for (auto & rule : chcs) {
+                                if (rule.dstRelation == decl) {
+                                  Expr goal = convertToFunction(rule);
+                                  current_assumptions.clear();
+                                  current_assumptions = assumptions;
+                                  current_assumptions.push_back(baseDefinitions[decl]);
+                                  current_assumptions.push_back(indDefinitions[decl]);
+                                  if (!prove (current_assumptions, goal)) {
+                                    foundRecursiveDefinition = false;
+                                    break;
+                                  }
+                                  else {
+                                    lemmas.push_back(goal);
+                                  }
+                                }
+                              }
+                              if (foundRecursiveDefinition == true) {
+                                outs() << "lemmas: \n";
+                                for (auto & lemma : lemmas) {
+                                  outs() << *lemma << "\n";
+                                  assumptions.push_back(lemma);
+                                }
+                                return true;
                               }
                             }
                           }
