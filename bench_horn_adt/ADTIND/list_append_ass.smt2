@@ -8,5 +8,5 @@
 	(=> (and (= xs (cons x ys)) (append ys zs rs) (= ts (cons x rs))) (append xs zs ts))))
 
 (assert (forall ((xs Lst) (ys Lst) (zs Lst) (rs Lst) (ts Lst) (us Lst) (ws Lst))
-       (=> (and (append ys zs rs) (append xs ys ts) (append xs rs us) (append ts zs ws) (not (= us ws))) false)))
+       (=> (and (append ys zs rs) (append xs ys ts) (append xs rs us) (append ts zs ws) (not (= ws us))) false)))
 (check-sat)
