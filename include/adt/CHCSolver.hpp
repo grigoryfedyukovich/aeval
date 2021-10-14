@@ -25,14 +25,13 @@ namespace ufo
     int number_decls;
     bool givePriority = false;
     bool ignoreBaseVar = false;
-    std::map<Expr,ExprSet> definitions;
-    std::map<Expr,ExprSet> lemmas;
 
     map<Expr, Expr> baseConstructors;
     map<Expr, Expr> indConstructors;
 
     map<Expr, Expr> baseDefinitions;
     map<Expr, Expr> indDefinitions;
+    map<Expr, Expr> interpretations;
 
     map<Expr, int> inductiveVars;
 
@@ -173,6 +172,7 @@ namespace ufo
       Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
       if (decls.find(chc.dstRelation) != decls.end()) {
         destination = createDestination(chc);
+        interpretations[chc.dstRelation] = destination;
       }
       cnj.push_back(chc.body);
       Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
@@ -205,11 +205,10 @@ namespace ufo
                     
                     Expr base_asmpt = convertToFunction(chc);
                     baseDefinitions[decl] = base_asmpt;
-                    outs() << "base: " << *base_asmpt << "\n";
+                    // outs() << "base: " << *base_asmpt << "\n";
 
                     Expr indConstructor = indConstructors[bind::typeOf(chc.dstVars[i])];
                     if (indConstructor == NULL) {
-                      outs() << "HERE\n";
                       assumptions.push_back(base_asmpt);
                       return true;
                     }
@@ -243,7 +242,7 @@ namespace ufo
                             }
                             if (shouldBeChecked) {
                               Expr ind_asmpt = convertToFunction(ind_chc);
-                              outs() << "ind: " << *ind_asmpt << "\n";
+                              // outs() << "ind: " << *ind_asmpt << "\n";
                               indDefinitions[decl] =  ind_asmpt;
                               bool foundRecursiveDefinition = true;
                               // We should check that for all rules (including non-definitive) this definition is correct
@@ -264,9 +263,9 @@ namespace ufo
                                 }
                               }
                               if (foundRecursiveDefinition == true) {
-                                outs() << "lemmas: \n";
+                                // outs() << "lemmas: \n";
                                 for (auto & lemma : lemmas) {
-                                  outs() << *lemma << "\n";
+                                  // outs() << *lemma << "\n";
                                   assumptions.push_back(lemma);
                                 }
                                 return true;
@@ -381,8 +380,8 @@ namespace ufo
 //           for (auto & a : current_assumptions) {
 //             outs() << *a << "\n";
 //           }
-//           outs() << "goal: \n";
-//           outs() << *goal << "\n";
+          // outs() << "goal: \n";
+          // outs() << *goal << "\n";
            goal = createQuantifiedFormula(goal, constructors);
           if (!prove (current_assumptions, goal)) {
             // outs() << "CANT PROVE" << *goal << "\n";
@@ -395,6 +394,11 @@ namespace ufo
             assumptions.push_back(goal);
           }
         }
+      }
+      for (auto & decl : ordered_decls) {
+        outs() << interpretations[decl] << "\n";
+        outs() << baseDefinitions[decl] << "\n";
+        outs() << indDefinitions[decl] << "\n";
       }
       return true;
   }
@@ -635,9 +639,9 @@ namespace ufo
       return prove (assms, goal, 2, print);
     }
 
-    bool prove (ExprVector& lemmas, Expr fla, int rounds = 2, bool print = true)
+    bool prove (ExprVector& lemmas, Expr fla, int rounds = 2, bool print = false)
     {
-      ADTSolver sol (fla, lemmas, constructors, 5, 2, 3, 1, print); // last false is for verbosity
+      ADTSolver sol (fla, lemmas, constructors); // last false is for verbosity
       return isOpX<FORALL>(fla) ? sol.solve() : sol.solveNoind(rounds);
     }
   };
@@ -649,10 +653,9 @@ namespace ufo
     CHCs ruleManager(efac, z3);
     ExprSet adts;
     ruleManager.parse(smt_file);
-    ruleManager.print();
+    // ruleManager.print();
 
     ExprVector constructors;
-    ExprVector assumptions;
 
     ExprSet& decls = ruleManager.decls;
 
