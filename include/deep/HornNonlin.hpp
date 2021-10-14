@@ -88,6 +88,7 @@ namespace ufo
     map<Expr, vector<int>> incms;
     int qCHCNum;  // index of the query in chc
     int total_var_cnt = 0;
+    ExprVector constructors;
 
     CHCs(ExprFactory &efac, EZ3 &z3) : m_efac(efac), m_z3(z3) {};
 
@@ -207,6 +208,9 @@ namespace ufo
       // GF: this entry part is different from the original implementation
       // (since the fixpoint format does not support ADTs)
       Expr e = z3_from_smtlib_file (m_z3, smt_file);
+      for (auto & a : m_z3.getAdtConstructors()) {
+        constructors.push_back(regularizeQF(a));
+      }
       ExprSet cnjs;
       getConj(e, cnjs);
       unitPropagation(cnjs);
@@ -303,6 +307,32 @@ namespace ufo
           continue;
         }
 
+        // Should keep non-adt variables using in adt constructors
+        ExprSet cnjsSet;
+        getConj(hr.body, cnjsSet);
+        for (auto cnj : cnjsSet) {
+          if (isOpX<EQ>(cnj)) {
+            Expr l = bind::fname(cnj->left());
+            Expr r = bind::fname(cnj->right());
+            if (std::find(constructors.begin(), constructors.end(), l) != constructors.end()) {
+              for (int i = 0; i < cnj->left()->arity(); ++i) {
+                Expr var = cnj->left()->arg(i);
+                if (!isAdtConst(var)) {
+                  hr.locVars.erase(std::remove(hr.locVars.begin(), hr.locVars.end(), var), hr.locVars.end());
+                }
+              }
+            }
+            if (std::find(constructors.begin(), constructors.end(), r) != constructors.end()) {
+              for (int i = 0; i < cnj->right()->arity(); ++i) {
+                Expr var = cnj->right()->arg(i);
+                if (!isAdtConst(var)) {
+                  hr.locVars.erase(std::remove(hr.locVars.begin(), hr.locVars.end(), var), hr.locVars.end());
+                }
+              }
+            }
+          }
+        }
+        
         hr.body = simpleQE(hr.body, hr.locVars);
         ExprVector body_vars;
         expr::filter (hr.body, bind::IsConst(), std::inserter (body_vars, body_vars.begin ()));
