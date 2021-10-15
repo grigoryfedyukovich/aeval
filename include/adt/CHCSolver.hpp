@@ -105,46 +105,49 @@ namespace ufo
     bool findMatchingFromRule(HornRuleExt chc, ExprMap &matching, Expr rule) {
       if (isOpX<IMPL>(rule))
       rule = rule->left();
-      bool wasChanged = false;
       if (rule->arity() > 1) {
         if (isOpX<EQ>(rule) && findMatchingFromElement(chc, rule, matching)) {
-          wasChanged = true;
+          return true;
         }
         else {
           for(int j = 0; j < rule->arity(); ++j) {
             Expr elem = rule->arg(j);
             if (isOpX<EQ>(elem) && findMatchingFromElement(chc, elem, matching)) {
-              wasChanged = true;
+              return true;
             }
           }
         }
       }
-      return wasChanged;
+      return false;
     }
 
     bool isConsctructor(Expr elem) {
       return std::find(constructors.begin(), constructors.end(), elem) != constructors.end();
     }
 
-    void findMatchingFromLeftSideElem(Expr elem, ExprMap &matching) {
+    bool findMatchingFromLeftSideElem(Expr elem, ExprMap &matching) {
       if (isOpX<EQ>(elem)) {
         if (elem->left()->arity() == 1 && !(isConsctructor(bind::fname (elem->left())))) {
           matching[elem->left()] = elem->right();
+          return true;
         }
         else if (elem->right()->arity() == 1 && !(isConsctructor(bind::fname (elem->right())))) {
           matching[elem->right()] = elem->left();
+          return true;
         }
       }
     }
 
-    void findMatchingFromLeftSide(Expr left, ExprMap &matching) {
+    bool findMatchingFromLeftSide(Expr left, ExprMap &matching) {
       if (isOpX<AND>(left)) {
         for (int i = 0; i < left->arity(); ++i) {
-          findMatchingFromLeftSideElem(left->arg(i), matching);
+          if (findMatchingFromLeftSideElem(left->arg(i), matching))
+            return true;
         }
       }
       else {
-        findMatchingFromLeftSideElem(left, matching);
+        if (findMatchingFromLeftSideElem(left, matching))
+          return true;
       }
     }
 
@@ -178,7 +181,7 @@ namespace ufo
       Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
       while (!isOpX<EQ>(asmpt) && findMatchingFromRule(chc, matching, asmpt)) {
         asmpt = replaceAll(asmpt, matching);
-        asmpt = simplifyArithm(asmpt);
+        // asmpt = simplifyArithm(asmpt);
         asmpt = simplifyBool(asmpt);
         matching.clear();
       }
@@ -333,56 +336,21 @@ namespace ufo
             // outs() << *destination << "\n";
           }
 
-          for (int i = 0; i < chc.srcRelations.size(); i++) {
-            if (decls.find(chc.srcRelations[i]) != decls.end()) {
-              int ind = values_inds[chc.srcRelations[i]->left()];
-              Expr app = createNewApp(chc, i, ind);
-              matching[chc.srcVars[i][ind]] = app;
-            }
-            else {
-               Expr tmp = bind::fapp (chc.srcRelations[i], chc.srcVars[i]);
-               cnj.push_back(tmp);
-            }
-          }
 
-          Expr goal = replaceAll(mk<IMPL>(conjoin(cnj, efac), destination), matching);
-          matching.clear();
-          Expr left = goal->left();
+          replaceDeclsInLeftPart(chc, cnj);
 
-          // outs() << "GOAL: \n";
-          // outs() << *goal << "\n";
-          // findMatchingFromLeftSide(left, matching);
-          // goal = replaceAll(goal, matching);
-          // goal = simplifyBool(goal);
-          // matching.clear();
+          Expr goal = mk<IMPL>(conjoin(cnj, efac), destination);
+          // outs() << goal << "\n";
 
-          // outs() << "GOAL: \n";
-          // outs() << *goal << "\n";
-          findMatchingFromLeftSide(goal->left(), matching);
-          goal = replaceAll(goal, matching);
-          goal = simplifyBool(goal);
-          if (isOpX<IMPL>(goal)) {
-            matching.clear();
-
-            // outs() << "GOAL: \n";
-            // outs() << *goal << "\n";
-            findMatchingFromLeftSide(goal->left(), matching);
+          while (!isOpX<EQ>(goal) && findMatchingFromLeftSide(goal->left(), matching)) {
+            
             goal = replaceAll(goal, matching);
-  //          goal = simplifyArithm(goal);
             goal = simplifyBool(goal);
+            matching.clear();
+            // outs() << goal << "\n";
           }
-
-          // if (goal->arity() > 0) {
-          //   goal = createQuantifiedFormula(goal, constructors);
-          // }
           ExprVector current_assumptions = assumptions;
-//           outs() << "assumptions:\n";
-//           for (auto & a : current_assumptions) {
-//             outs() << *a << "\n";
-//           }
-          // outs() << "goal: \n";
-          // outs() << *goal << "\n";
-           goal = createQuantifiedFormula(goal, constructors);
+          goal = createQuantifiedFormula(goal, constructors);
           if (!prove (current_assumptions, goal)) {
             // outs() << "CANT PROVE" << *goal << "\n";
             return false;
