@@ -103,8 +103,9 @@ namespace ufo
     }
 
     bool findMatchingFromRule(HornRuleExt chc, ExprMap &matching, Expr rule) {
-      if (isOpX<IMPL>(rule))
-      rule = rule->left();
+      if (isOpX<IMPL>(rule)) {
+        rule = rule->left();
+      }
       if (rule->arity() > 1) {
         if (isOpX<EQ>(rule) && findMatchingFromElement(chc, rule, matching)) {
           return true;
@@ -181,10 +182,10 @@ namespace ufo
       Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
       while (!isOpX<EQ>(asmpt) && findMatchingFromRule(chc, matching, asmpt)) {
         asmpt = replaceAll(asmpt, matching);
-        // asmpt = simplifyArithm(asmpt);
         asmpt = simplifyBool(asmpt);
         matching.clear();
       }
+      asmpt = simplifyArithm(asmpt);
       if (asmpt->arity() > 0) {
         asmpt = createQuantifiedFormula(asmpt, constructors);
       }
