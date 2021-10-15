@@ -1733,17 +1733,8 @@ namespace ufo
       {
         if (!isOpX<FORALL>(*it))
         {
-          if (isOp<ComparissonOp>(*it) || isOpX<FAPP>(*it) || isOpX<SELECT>(*it)) // super big hack
-          {
+          if (isOpX<EQ>(*it) || isOpX<NEQ>(*it) || isOpX<FAPP>(*it) || isOpX<NEG>(*it) || isOpX<SELECT>(*it)) // super big hack
             qFreeAssms.insert(*it);
-          }
-          if (isOpX<NEG>(*it))
-          {
-            if (newGoal == NULL && isOpX<FALSE>(goal))
-              goal = (*it)->last();
-            else
-              qFreeAssms.insert(*it);
-          }
 
           it = assumptions.erase(it);
         }
