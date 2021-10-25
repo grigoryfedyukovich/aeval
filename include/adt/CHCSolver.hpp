@@ -15,6 +15,7 @@ namespace ufo
     ExprFactory &efac;
     ExprSet &adts;
 
+    // Keep the current return values
     std::map<Expr,int> values_inds;
     ExprVector &constructors;
     ExprVector &assumptions;
@@ -32,8 +33,6 @@ namespace ufo
     map<Expr, Expr> baseDefinitions;
     map<Expr, Expr> indDefinitions;
     map<Expr, Expr> interpretations;
-
-    map<Expr, int> inductiveVars;
 
   public:
     CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, ExprVector &_assms, vector<HornRuleExt> &_chcs, bool _nonadtPriority = false, bool _ignoreBase = false) :
@@ -74,28 +73,30 @@ namespace ufo
     }
 
     bool findMatchingFromElement(HornRuleExt chc, Expr elem, ExprMap &matching) {
-      if (elem->left()->arity() == 1
-          && std::find(chc.dstVars.begin(), chc.dstVars.end(), elem->left()) != chc.dstVars.end()) {
-        matching[elem->left()] = elem->right();
-        return true;
-      }
-      else if (elem->right()->arity() == 1
-          && std::find(chc.dstVars.begin(), chc.dstVars.end(), elem->right()) != chc.dstVars.end()) {
-        matching[elem->right()] = elem->left();
-        return true;
-      }
-      for (auto & v : chc.dstVars) {
-        Expr ineq = ineqSimplifier(v, elem);
-        if (ineq->left() == v) {
-          matching[ineq->left()] = ineq->right();
+      if (!chc.isQuery) {
+        if (elem->left()->arity() == 1
+            && std::find(chc.dstVars.begin(), chc.dstVars.end(), elem->left()) != chc.dstVars.end()) {
+          matching[elem->left()] = elem->right();
           return true;
         }
+        else if (elem->right()->arity() == 1
+            && std::find(chc.dstVars.begin(), chc.dstVars.end(), elem->right()) != chc.dstVars.end()) {
+          matching[elem->right()] = elem->left();
+          return true;
+        }
+        for (auto & v : chc.dstVars) {
+          Expr ineq = ineqSimplifier(v, elem);
+          if (ineq->left() == v) {
+            matching[ineq->left()] = ineq->right();
+            return true;
+          }
+        }
       }
-      if ((elem->left()->arity() == 1) && !(isConsctructor(bind::fname(elem->left())))) {
+      if ((elem->left()->arity() == 1) && !(isConstructor(bind::fname(elem->left())))) {
           matching[elem->left()] = elem->right();
           return true;
       }
-      else if ((elem->right()->arity() == 1) && !(isConsctructor(bind::fname(elem->right())))) {
+      else if ((elem->right()->arity() == 1) && !(isConstructor(bind::fname(elem->right())))) {
           matching[elem->right()] = elem->left();
           return true;
       }
@@ -106,50 +107,24 @@ namespace ufo
       if (isOpX<IMPL>(rule)) {
         rule = rule->left();
       }
-      if (rule->arity() > 1) {
+      if (isOpX<AND>(rule)) {
+        for(int j = 0; j < rule->arity(); ++j) {
+          Expr elem = rule->arg(j);
+          if (isOpX<EQ>(elem) && findMatchingFromElement(chc, elem, matching)) {
+            return true;
+          }
+        }
+      }
+      else {
         if (isOpX<EQ>(rule) && findMatchingFromElement(chc, rule, matching)) {
           return true;
-        }
-        else {
-          for(int j = 0; j < rule->arity(); ++j) {
-            Expr elem = rule->arg(j);
-            if (isOpX<EQ>(elem) && findMatchingFromElement(chc, elem, matching)) {
-              return true;
-            }
-          }
         }
       }
       return false;
     }
 
-    bool isConsctructor(Expr elem) {
+    bool isConstructor(Expr elem) {
       return std::find(constructors.begin(), constructors.end(), elem) != constructors.end();
-    }
-
-    bool findMatchingFromLeftSideElem(Expr elem, ExprMap &matching) {
-      if (isOpX<EQ>(elem)) {
-        if (elem->left()->arity() == 1 && !(isConsctructor(bind::fname (elem->left())))) {
-          matching[elem->left()] = elem->right();
-          return true;
-        }
-        else if (elem->right()->arity() == 1 && !(isConsctructor(bind::fname (elem->right())))) {
-          matching[elem->right()] = elem->left();
-          return true;
-        }
-      }
-    }
-
-    bool findMatchingFromLeftSide(Expr left, ExprMap &matching) {
-      if (isOpX<AND>(left)) {
-        for (int i = 0; i < left->arity(); ++i) {
-          if (findMatchingFromLeftSideElem(left->arg(i), matching))
-            return true;
-        }
-      }
-      else {
-        if (findMatchingFromLeftSideElem(left, matching))
-          return true;
-      }
     }
 
     Expr createDestination(HornRuleExt chc) {
@@ -172,12 +147,12 @@ namespace ufo
     Expr convertToFunction(HornRuleExt chc) {
       ExprVector cnj;
       ExprMap matching;
-      replaceDeclsInLeftPart(chc, cnj);
       Expr destination = bind::fapp (chc.dstRelation, chc.dstVars);
       if (decls.find(chc.dstRelation) != decls.end()) {
         destination = createDestination(chc);
         interpretations[chc.dstRelation] = destination;
       }
+      replaceDeclsInLeftPart(chc, cnj);
       cnj.push_back(chc.body);
       Expr asmpt = mk<IMPL>(conjoin(cnj, efac), destination);
       while (!isOpX<EQ>(asmpt) && findMatchingFromRule(chc, matching, asmpt)) {
@@ -209,7 +184,6 @@ namespace ufo
                     
                     Expr base_asmpt = convertToFunction(chc);
                     baseDefinitions[decl] = base_asmpt;
-                    // outs() << "base: " << *base_asmpt << "\n";
 
                     Expr indConstructor = indConstructors[bind::typeOf(chc.dstVars[i])];
                     if (indConstructor == NULL) {
@@ -246,7 +220,6 @@ namespace ufo
                             }
                             if (shouldBeChecked) {
                               Expr ind_asmpt = convertToFunction(ind_chc);
-                              // outs() << "ind: " << *ind_asmpt << "\n";
                               indDefinitions[decl] =  ind_asmpt;
                               bool foundRecursiveDefinition = true;
                               // We should check that for all rules (including non-definitive) this definition is correct
@@ -267,9 +240,7 @@ namespace ufo
                                 }
                               }
                               if (foundRecursiveDefinition == true) {
-                                // outs() << "lemmas: \n";
                                 for (auto & lemma : lemmas) {
-                                  // outs() << *lemma << "\n";
                                   assumptions.push_back(lemma);
                                 }
                                 return true;
@@ -289,17 +260,13 @@ namespace ufo
       return false;
     }
 
-    bool createAndCheckInterpretaions() {
-      // 1. add cycle for all chcs with decl destination to find the definition
-      // 2. ite, merge CHCs 
-      // 3. 
-
+    bool createAndCheckInterpretations() {
       // creating assumptions
       for (auto & decl : ordered_decls) {
         createAndCheckDefinition(decl);
       }
 
-      // creating goals from queries for ADT-ind
+      // creating goals for ADT-ind from CHC-queries
       for (auto & chc : chcs) {
         if (chc.isQuery) {
           Expr destination;
@@ -332,34 +299,23 @@ namespace ufo
             types.push_back(bind::typeOf(destination->arg(ind + 1)));
             Expr rel = bind::fdecl (efac.mkTerm(destination->left()->left()->op()), types);
             Expr baseApp = bind::fapp (rel, newVars);
-            // outs() << "DESTINATION " << *destination <<" " << destination->arity() << ind<<  "\n";
             destination = mk<EQ>(baseApp, destination->arg(ind + 1));
-            // outs() << *destination << "\n";
           }
 
-
           replaceDeclsInLeftPart(chc, cnj);
-
           Expr goal = mk<IMPL>(conjoin(cnj, efac), destination);
-          // outs() << goal << "\n";
-
-          while (!isOpX<EQ>(goal) && findMatchingFromLeftSide(goal->left(), matching)) {
-            
+          while (!isOpX<EQ>(goal) && findMatchingFromRule(chc, matching, goal)) {
             goal = replaceAll(goal, matching);
             goal = simplifyBool(goal);
             matching.clear();
-            // outs() << goal << "\n";
           }
           ExprVector current_assumptions = assumptions;
           goal = createQuantifiedFormula(goal, constructors);
+          // Check if the goal may be proved in current interpretations
           if (!prove (current_assumptions, goal)) {
-            // outs() << "CANT PROVE" << *goal << "\n";
             return false;
           }
           else {
-//             if (goal->arity() > 0) {
-//               goal = createQuantifiedFormula(goal, constructors);
-//             }
             assumptions.push_back(goal);
           }
         }
@@ -495,7 +451,7 @@ namespace ufo
       if (idx >= ordered_decls.size()) {
         values_inds = buf;
         assumptions.clear();
-        return createAndCheckInterpretaions();
+        return createAndCheckInterpretations();
       }
       // Get the possible version of return variables
       Expr cur = ordered_decls[idx];
