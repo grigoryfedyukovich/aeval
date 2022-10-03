@@ -17,23 +17,24 @@ namespace expr
         BvSort (unsigned width) : m_width (width) {}
         BvSort (const BvSort &o) : m_width (o.m_width) {}
         
- 	bool operator< (const BvSort &b) const { return m_width < b.m_width; }
-	bool operator== (const BvSort &b) const { return m_width == b.m_width; }
-	bool operator!= (const BvSort &b) const { return m_width != b.m_width; }
+        bool operator< (const BvSort &b) const { return m_width < b.m_width; }
+        bool operator== (const BvSort &b) const { return m_width == b.m_width; }
+        bool operator!= (const BvSort &b) const { return m_width != b.m_width; }
 	
-	size_t hash () const
-	{
-	  std::hash<unsigned> hasher;
-	  return hasher (m_width);
-	}
-	
-	void Print (std::ostream &OS) const { OS << "bv(" << m_width << ")"; }	
+        size_t hash () const
+        {
+          std::hash<unsigned> hasher;
+          return hasher (m_width);
+        }
+        
+        void Print (std::ostream &OS) const { OS << "bv(" << m_width << ")"; }	
       };
+
       inline std::ostream &operator<< (std::ostream &OS, const BvSort &b)
       {
-	b.Print (OS);
-	return OS;
-      }       
+        b.Print (OS);
+        return OS;
+      }
     }
   }
   
@@ -76,12 +77,23 @@ namespace expr
       /// bit-vector numeral of an arbitrary precision integer
       inline Expr bvnum (mpz_class num, unsigned bwidth, ExprFactory &efac)
       {return bvnum (mkTerm (num, efac), bvsort (bwidth, efac));}
-      
+
+      inline Expr bvnum (int num, unsigned bwidth, ExprFactory &efac)
+      {return bvnum(mpz_class(num), bwidth, efac);}
+
       /// true if v is a bit-vector numeral
       inline bool is_bvnum (Expr v)
       {
         return isOpX<BIND> (v) && v->arity () == 2 &&
           isOpX<MPZ> (v->arg (0)) && isOpX<BVSORT> (v->arg (1));
+      }
+
+      /// true if v is a bit-vector variable
+      inline bool is_bvconst (Expr v)
+      {
+        return isOpX<FAPP> (v) &&
+        isOpX<FDECL> (v->first()) && v->first()->arity () == 2 &&
+        isOpX<BVSORT> (v->first()->arg (1));
       }
 
       inline mpz_class toMpz (Expr v)
@@ -100,7 +112,33 @@ namespace expr
       
     }
     
+
+    
+    NOP_BASE(BvArithOp)
+    NOP(BNEG,"bvneg",FUNCTIONAL,BvArithOp) // unary minus
+    NOP(BADD,"bvadd",FUNCTIONAL,BvArithOp)
+    NOP(BSUB,"bvsub",FUNCTIONAL,BvArithOp)
+    NOP(BMUL,"bvmul",FUNCTIONAL,BvArithOp)
+    NOP(BUREM,"bvurem",FUNCTIONAL,BvArithOp)
+    NOP(BUDIV,"bvudiv",FUNCTIONAL,BvArithOp)
+
+    NOP_BASE(BvUCmp)
+    NOP(BULT,"bvult",FUNCTIONAL,BvUCmp)
+    NOP(BULE,"bvule",FUNCTIONAL,BvUCmp)
+    NOP(BUGE,"bvuge",FUNCTIONAL,BvUCmp)
+    NOP(BUGT,"bvugt",FUNCTIONAL,BvUCmp)
+    
+    NOP_BASE(BvSCmp)
+    NOP(BSLT,"bvslt",FUNCTIONAL,BvSCmp)
+    NOP(BSLE,"bvsle",FUNCTIONAL,BvSCmp)
+    NOP(BSGE,"bvsge",FUNCTIONAL,BvSCmp)
+    NOP(BSGT,"bvsgt",FUNCTIONAL,BvSCmp)
+
     NOP_BASE(BvOp)
+    NOP(BSDIV,"bvsdiv",FUNCTIONAL,BvOp)
+
+    NOP(BSREM,"bvsrem",FUNCTIONAL,BvOp)
+    NOP(BSMOD,"bvsmod",FUNCTIONAL,BvOp)
     NOP(BNOT,"bvnot",FUNCTIONAL,BvOp)
     NOP(BREDAND,"bvredand",FUNCTIONAL,BvOp)
     NOP(BREDOR,"bvredor",FUNCTIONAL,BvOp)
@@ -110,23 +148,6 @@ namespace expr
     NOP(BNAND,"bvnand",FUNCTIONAL,BvOp)
     NOP(BNOR,"bvnor",FUNCTIONAL,BvOp)
     NOP(BXNOR,"bvxnor",FUNCTIONAL,BvOp)
-    NOP(BNEG,"bvneg",FUNCTIONAL,BvOp)
-    NOP(BADD,"bvadd",FUNCTIONAL,BvOp)
-    NOP(BSUB,"bvsub",FUNCTIONAL,BvOp)
-    NOP(BMUL,"bvmul",FUNCTIONAL,BvOp)
-    NOP(BUDIV,"bvudiv",FUNCTIONAL,BvOp)
-    NOP(BSDIV,"bvsdiv",FUNCTIONAL,BvOp)
-    NOP(BUREM,"bvurem",FUNCTIONAL,BvOp)
-    NOP(BSREM,"bvsrem",FUNCTIONAL,BvOp)
-    NOP(BSMOD,"bvsmod",FUNCTIONAL,BvOp)
-    NOP(BULT,"bvult",FUNCTIONAL,BvOp)
-    NOP(BSLT,"bvslt",FUNCTIONAL,BvOp)
-    NOP(BULE,"bvule",FUNCTIONAL,BvOp)
-    NOP(BSLE,"bvsle",FUNCTIONAL,BvOp)
-    NOP(BUGE,"bvuge",FUNCTIONAL,BvOp)
-    NOP(BSGE,"bvsge",FUNCTIONAL,BvOp)
-    NOP(BUGT,"bvugt",FUNCTIONAL,BvOp)
-    NOP(BSGT,"bvsgt",FUNCTIONAL,BvOp)
     NOP(BCONCAT,"concat",FUNCTIONAL,BvOp)
     NOP(BEXTRACT,"extract",FUNCTIONAL,BvOp)
     NOP(BSEXT,"bvsext",FUNCTIONAL,BvOp)
@@ -145,12 +166,15 @@ namespace expr
     namespace bv
     {
       /* XXX Add helper methods as needed */
+      inline bool isBvCmp (Expr v) {
+        return isOp<BvSCmp>(v) || isOp<BvUCmp>(v);
+      }
 
       inline Expr bvnot (Expr v) {return mk<BNOT> (v);}
       
       inline Expr extract (unsigned high, unsigned low, Expr v)
       {
-        assert (high > low);
+        assert (high >= low);
         return mk<BEXTRACT> (mkTerm<unsigned> (high, v->efac ()), 
                              mkTerm<unsigned> (low, v->efac ()), v);
       }

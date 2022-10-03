@@ -2149,7 +2149,6 @@ namespace expr
     }
   }
   
-
   namespace op
   {
 
@@ -2201,9 +2200,7 @@ namespace expr
       { return var (name, mk<UNINT_TY> (name->efac ())); }
       
       template <typename T> bool isVar (Expr v) 
-      { 
-	return isOpX<BIND>(v) && isOpX<T>(bind::type (v));
-      }
+      { return isOpX<BIND>(v) && isOpX<T>(bind::type (v)); }
       inline bool isBoolVar (Expr v) { return isVar<BOOL_TY> (v); }
       inline bool isIntVar (Expr v) { return isVar<INT_TY> (v); }
       inline bool isRealVar (Expr v) { return isVar<REAL_TY> (v); }
@@ -2221,12 +2218,12 @@ namespace expr
       template <typename Range>
       Expr fdecl (Expr fname, const Range &args)
       {
-	// -- at least one value for range type
-	assert (boost::size (args) > 0);
-	ExprVector _args;
-	_args.push_back (fname);
-	_args.insert (_args.end (), boost::begin (args), boost::end (args));
-	return mknary<FDECL> (_args);
+        // -- at least one value for range type
+        assert (boost::size (args) > 0);
+        ExprVector _args;
+        _args.push_back (fname);
+        _args.insert (_args.end (), boost::begin (args), boost::end (args));
+        return mknary<FDECL> (_args);
       }
 
       inline bool isFdecl (Expr fdecl) { return isOpX<FDECL> (fdecl); }
@@ -2246,16 +2243,16 @@ namespace expr
       inline Expr fapp (Expr fdecl, Expr a0, Expr a1 = Expr(), 
 			Expr a2 = Expr())
       {
-	ExprVector args;
-	args.push_back (fdecl);
+        ExprVector args;
+        args.push_back (fdecl);
 
-	if (a0)
-	  args.push_back (a0);
-	if (a1)
-	  args.push_back (a1);
-	if (a2)
-	  args.push_back (a2);
-	return mknary<FAPP> (args);
+        if (a0)
+          args.push_back (a0);
+        if (a1)
+          args.push_back (a1);
+        if (a2)
+          args.push_back (a2);
+        return mknary<FAPP> (args);
       }
 
 
@@ -2266,28 +2263,28 @@ namespace expr
 
       inline size_t domainSz (Expr fdecl) 
       { 
-	assert (fdecl->arity () >= 2);
-	return fdecl->arity () - 2; 
+        assert (fdecl->arity () >= 2);
+        return fdecl->arity () - 2; 
       }
 
       inline Expr domainTy (Expr fdecl, size_t n)
       {
-	assert (n + 2 < fdecl->arity ());
-	return fdecl->arg (n+1);
+        assert (n + 2 < fdecl->arity ());
+        return fdecl->arg (n+1);
       }      
       
       template <typename T> bool isFdecl (Expr v)
       {
-	return isOpX<FDECL> (v) && isOpX<T> (rangeTy (v));
+        return isOpX<FDECL> (v) && isOpX<T> (rangeTy (v));
       }
       
       
       /** constant is an applied nullary function */
       template <typename T> bool isConst (Expr v)
       {
-	return isOpX<FAPP> (v) && 
-	  v->arity () == 1 && 
-	  isFdecl<T> (fname (v));
+        return isOpX<FAPP> (v) && 
+          v->arity () == 1 && 
+          isFdecl<T> (fname (v));
       }
       
       inline Expr mkConst (Expr name, Expr sort) {return fapp (constDecl (name, sort));}
@@ -2301,7 +2298,17 @@ namespace expr
       inline bool isIntConst (Expr v) { return isConst<INT_TY> (v); }
       inline bool isRealConst (Expr v) { return isConst<REAL_TY> (v); }      
 
-      
+    }
+  }
+}
+
+#include "ExprBv.hh"
+namespace expr 
+{
+  namespace op
+  {
+    namespace bind 
+    {
       inline Expr typeOf (Expr v)
       {
         using namespace bind;
@@ -2332,7 +2339,11 @@ namespace expr
         if (isOpX<STORE>(v)) return sort::arrayTy(typeOf(v->right()), typeOf(v->last()));
         if (isOpX<SELECT>(v)) return typeOf(v->left())->last();
         if (isOpX<CONST_ARRAY>(v)) return sort::arrayTy(v->left(), typeOf(v->right()));
-        
+
+        if(isOp<BvArithOp>(v) || isOp<BvOp>(v)) return typeOf(v->left());
+        if(isOp<BvSCmp>(v) || isOp<BvUCmp>(v))
+          return mk<BOOL_TY> (v->efac ());
+
 //      std::cerr << "WARNING: could not infer type of: " << *v << "\n";
 //      assert (0 && "Unreachable");
 
@@ -3230,8 +3241,6 @@ namespace expr
     }
   }
 }
-
-#include "ExprBv.hh"
 
 namespace std
 {

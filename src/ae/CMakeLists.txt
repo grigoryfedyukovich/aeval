@@ -1,1 +1,1 @@
-add_library(aevalSolver MBPUtils.cpp)
+add_library(aevalSolver MBPUtils.cpp ExprBvUtils.cpp BvNormalization.cpp)

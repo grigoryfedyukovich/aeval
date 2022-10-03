@@ -1,8 +1,9 @@
-cmake_minimum_required(VERSION 2.8.11)
+cmake_minimum_required(VERSION 3.5)
 
 project (AeVal)
 set (AeVal_VERSION_MAJOR 1)
 set (AeVal_VERSION_MINOR 0)
+set (CatchTestsEnabled FALSE) # set to TRUE to build catch unit tests
 
 if (NOT PACKAGE_VERSION)
   set(PACKAGE_VERSION
@@ -169,3 +170,6 @@ include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR}/src)
 
 add_subdirectory(src)
 add_subdirectory(tools)
+if (${CatchTestsEnabled})
+  add_subdirectory(tests)
+endif()
