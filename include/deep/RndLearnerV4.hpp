@@ -216,7 +216,7 @@ namespace ufo
         cnd = cnds[0];              // TODO: extend
       }
 
-      vector<int>& cycle = ruleManager.cycles[cycleNum];
+      vector<int>& cycle = ruleManager.cycles[rel][cycleNum];
       ExprVector& srcVars = ruleManager.chcs[cycle[0]].srcVars;
       ExprVector& dstVars = ruleManager.chcs[cycle.back()].dstVars;
 
@@ -574,8 +574,9 @@ namespace ufo
       {
         // next cand (to be sampled)
         // TODO: find a smarter way to calculate; make parametrizable
-        int cycleNum = i % ruleManager.cycles.size();
-        int tmp = ruleManager.cycles[cycleNum][0];
+        Expr rel1 = ruleManager.loopheads[i % ruleManager.loopheads.size()];
+        int cycleNum = i % ruleManager.cycles[rel1].size();
+        int tmp = ruleManager.cycles[rel1][cycleNum][0];
         Expr rel = ruleManager.chcs[tmp].srcRelation;
         int invNum = getVarIndex(rel, decls);
         candidates.clear();
@@ -858,9 +859,9 @@ namespace ufo
       return true;
     }
 
-    void initializeAux(ExprSet& cands, BndExpl& bnd, int cycleNum, Expr pref)
+    void initializeAux(ExprSet& cands, BndExpl& bnd, Expr dcl, int cycleNum, Expr pref)
     {
-      vector<int>& cycle = ruleManager.cycles[cycleNum];
+      vector<int>& cycle = ruleManager.cycles[dcl][cycleNum];
       HornRuleExt* hr = &ruleManager.chcs[cycle[0]];
       Expr rel = hr->srcRelation;
       ExprVector& srcVars = hr->srcVars;
@@ -996,7 +997,8 @@ namespace ufo
     map<Expr, ExprSet> cands;
     for (int i = 0; i < ruleManager.cycles.size(); i++)
     {
-      Expr dcl = ruleManager.chcs[ruleManager.cycles[i][0]].srcRelation;
+      Expr rel = ruleManager.loopheads[i % ruleManager.loopheads.size()];
+      Expr dcl = ruleManager.chcs[ruleManager.cycles[rel][i][0]].srcRelation;
       if (ds.initializedDecl(dcl)) continue;
       ds.initializeDecl(dcl);
       if (!dSee) continue;
@@ -1009,9 +1011,13 @@ namespace ufo
           cands[dcl].insert(t);
 
       if (mut > 0) ds.mutateHeuristicEq(cands[dcl], cands[dcl], dcl, true);
-      ds.initializeAux(cands[dcl], bnd, i, pref);
+      ds.initializeAux(cands[dcl], bnd, rel, i, pref);
     }
     if (dat > 0) ds.getDataCandidates(cands);
+
+    if(debug >= 3) {
+      outs() << "\nwtoDecls size: " << ruleManager.wtoDecls.size() << "\n";
+    }
 
     for (auto & dcl: ruleManager.wtoDecls)
     {

@@ -26,19 +26,29 @@ namespace ufo
     int k_ind;
 
     Expr inv;   // 1-inductive proof
+    Expr invRel;
 
     bool debug;
 
     public:
-
+    // TODO: Support invRel that is not the first entry in loopheads DR
     BndExpl (CHCs& r, bool d) :
-      m_efac(r.m_efac), ruleManager(r), u(m_efac), debug(d) {}
+      m_efac(r.m_efac), ruleManager(r), u(m_efac), debug(d) {
+      if(ruleManager.loopheads.size() > 0)
+        invRel = ruleManager.loopheads[0];
+    }
 
     BndExpl (CHCs& r, int to, bool d) :
-      m_efac(r.m_efac), ruleManager(r), u(m_efac, to), debug(d) {}
+      m_efac(r.m_efac), ruleManager(r), u(m_efac, to), debug(d) {
+      if(ruleManager.loopheads.size() > 0)
+        invRel = ruleManager.loopheads[0];
+    }
 
     BndExpl (CHCs& r, Expr lms, bool d) :
-      m_efac(r.m_efac), ruleManager(r), u(m_efac), extraLemmas(lms), debug(d) {}
+      m_efac(r.m_efac), ruleManager(r), u(m_efac), extraLemmas(lms), debug(d) {
+      if(ruleManager.loopheads.size() > 0)
+        invRel = ruleManager.loopheads[0];
+    }
 
     map<Expr, ExprSet> concrInvs;
     set<vector<int>> unsat_prefs;
@@ -110,7 +120,7 @@ namespace ufo
 
     Expr compactPrefix (int num, int unr = 0)
     {
-      vector<int> pr = ruleManager.prefixes[num];
+      vector<int> pr = ruleManager.prefixes[invRel][num];
       if (pr.size() == 0) return mk<TRUE>(m_efac);
 
       for (int j = pr.size() - 1; j >= 0; j--)
@@ -120,7 +130,7 @@ namespace ufo
           pr.insert(pr.begin() + j, tmp.begin(), tmp.end());
       }
 
-      pr.push_back(ruleManager.cycles[num][0]);   // we are interested in prefixes, s.t.
+      pr.push_back(ruleManager.cycles[invRel][num][0]);   // we are interested in prefixes, s.t.
                                                   // the cycle is reachable
       ExprVector ssa;
       getSSA(pr, ssa);
@@ -141,7 +151,7 @@ namespace ufo
       Expr pref = conjoin(ssa, m_efac);
       pref = rewriteSelectStore(pref);
       pref = keepQuantifiersRepl(pref, bindVars.back());
-      return replaceAll(pref, bindVars.back(), ruleManager.chcs[ruleManager.cycles[num][0]].srcVars);
+      return replaceAll(pref, bindVars.back(), ruleManager.chcs[ruleManager.cycles[invRel][num][0]].srcVars);
     }
 
     vector<ExprVector> bindVars;
@@ -208,6 +218,7 @@ namespace ufo
 
     tribool exploreTraces(int cur_bnd, int bnd, bool print = false)
     {
+      outs() << "Explore traces\n";
       if (ruleManager.chcs.size() == 0)
       {
         if (debug) outs () << "CHC system is empty\n";
@@ -471,10 +482,10 @@ namespace ufo
       str = str.substr(0, str.find('.'));
       cpp_int max_double = lexical_cast<cpp_int>(str);
 
-      for (int cyc = 0; cyc < ruleManager.cycles.size(); cyc++)
+      for (int cyc = 0; cyc < ruleManager.cycles[invRel].size(); cyc++)
       {
         vector<int> mainInds;
-        auto & loop = ruleManager.cycles[cyc];
+        auto & loop = ruleManager.cycles[invRel][cyc];
         ExprVector& srcVars = ruleManager.chcs[loop[0]].srcVars;
         if (srcRel != ruleManager.chcs[loop[0]].srcRelation) continue;
         if (models.size() > 0) continue;
@@ -501,11 +512,11 @@ namespace ufo
           }
         }
 
-        if (vars.size() < 2 && cyc == ruleManager.cycles.size() - 1)
+        if (vars.size() < 2 && cyc == ruleManager.cycles[invRel].size() - 1)
           continue; // does not make much sense to run with only one var when it is the last cycle
         invVars = vars;
 
-        auto & prefix = ruleManager.prefixes[cyc];
+        auto & prefix = ruleManager.prefixes[invRel][cyc];
         vector<int> trace;
         int l = 0;                              // starting index (before the loop)
         if (ruleManager.hasArrays[srcRel]) l++; // first iter is usually useless
@@ -647,10 +658,10 @@ namespace ufo
       map<int, Expr> exprModels;
       bool res = false;
 
-      for (int cyc = 0; cyc < ruleManager.cycles.size(); cyc++)
+      for (int cyc = 0; cyc < ruleManager.cycles[invRel].size(); cyc++)
       {
         vector<int> mainInds;
-        auto & loop = ruleManager.cycles[cyc];
+        auto & loop = ruleManager.cycles[invRel][cyc];
         Expr srcRel = ruleManager.chcs[loop[0]].srcRelation;
         ExprVector& srcVars = ruleManager.chcs[loop[0]].srcVars;
         if (models[srcRel].size() > 0) continue;
@@ -675,11 +686,11 @@ namespace ufo
           }
         }
 
-        if (vars.size() < 2 && cyc == ruleManager.cycles.size() - 1)
+        if (vars.size() < 2 && cyc == ruleManager.cycles[invRel].size() - 1)
           continue; // does not make much sense to run with only one var when it is the last cycle
         invVars[srcRel] = vars;
 
-        auto & prefix = ruleManager.prefixes[cyc];
+        auto & prefix = ruleManager.prefixes[invRel][cyc];
         vector<int> trace;
         Expr lastModel = mk<TRUE>(m_efac);
 
