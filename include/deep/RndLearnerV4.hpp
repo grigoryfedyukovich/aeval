@@ -216,7 +216,7 @@ namespace ufo
         cnd = cnds[0];              // TODO: extend
       }
 
-      vector<int>& cycle = ruleManager.cycles[cycleNum];
+      vector<int>& cycle = ruleManager.cycles[rel][cycleNum];
       ExprVector& srcVars = ruleManager.chcs[cycle[0]].srcVars;
       ExprVector& dstVars = ruleManager.chcs[cycle.back()].dstVars;
 
@@ -561,7 +561,6 @@ namespace ufo
     {
       if (printLog) outs () << "\nSAMPLING\n========\n";
       if (printLog >= 3)
-
         for (auto & a : deferredCandidates)
           for (auto & b : a.second)
             outs () << "  Deferred cand for " << a.first << ": " << b << "\n";
@@ -570,13 +569,13 @@ namespace ufo
       for (auto & a : deferredCandidates) defSz[a.first] = a.second.size();
       ExprSet cands;
       bool rndStarted = false;
+      int lsz = ruleManager.loopheads.size();
       for (int i = 0; i < maxAttempts; i++)
       {
         // next cand (to be sampled)
         // TODO: find a smarter way to calculate; make parametrizable
-        int cycleNum = i % ruleManager.cycles.size();
-        int tmp = ruleManager.cycles[cycleNum][0];
-        Expr rel = ruleManager.chcs[tmp].srcRelation;
+        Expr rel = ruleManager.loopheads[i % lsz];
+        int cycleNum = i % ruleManager.cycles[rel].size();
         int invNum = getVarIndex(rel, decls);
         candidates.clear();
         SamplFactory& sf = sfs[invNum].back();
@@ -858,9 +857,9 @@ namespace ufo
       return true;
     }
 
-    void initializeAux(ExprSet& cands, BndExpl& bnd, int cycleNum, Expr pref)
+    void initializeAux(ExprSet& cands, BndExpl& bnd, Expr dcl, int cycleNum, Expr pref)
     {
-      vector<int>& cycle = ruleManager.cycles[cycleNum];
+      vector<int>& cycle = ruleManager.cycles[dcl][cycleNum];
       HornRuleExt* hr = &ruleManager.chcs[cycle[0]];
       Expr rel = hr->srcRelation;
       ExprVector& srcVars = hr->srcVars;
@@ -955,7 +954,10 @@ namespace ufo
         }
       }
 
-      if (!qvits[invNum].empty()) ruleManager.hasArrays[rel] = true;
+      if (!qvits[invNum].empty()) {
+        if (printLog >= 3) outs() << "rel: " << rel << " : has arrays\n";
+        ruleManager.hasArrays[rel] = true;
+      }
     }
   };
 
@@ -994,22 +996,26 @@ namespace ufo
                     dFwd, dRec, dGenerous, debug);
 
     map<Expr, ExprSet> cands;
-    for (int i = 0; i < ruleManager.cycles.size(); i++)
+    for (auto& cyc : ruleManager.cycles)
     {
-      Expr dcl = ruleManager.chcs[ruleManager.cycles[i][0]].srcRelation;
-      if (ds.initializedDecl(dcl)) continue;
-      ds.initializeDecl(dcl);
-      if (!dSee) continue;
+      Expr rel = cyc.first;
+      for (int i = 0; i < cyc.second.size(); i++)
+      {
+        assert(rel == ruleManager.chcs[cyc.second[i][0]].srcRelation);
+        if (ds.initializedDecl(rel)) continue;
+        ds.initializeDecl(rel);
+        if (!dSee) continue;
 
-      Expr pref = bnd.compactPrefix(i);
-      ExprSet tmp;
-      getConj(pref, tmp);
-      for (auto & t : tmp)
-        if (hasOnlyVars(t, ruleManager.invVars[dcl]))
-          cands[dcl].insert(t);
+        Expr pref = bnd.compactPrefix(rel, i);
+        ExprSet tmp;
+        getConj(pref, tmp);
+        for (auto & t : tmp)
+        if (hasOnlyVars(t, ruleManager.invVars[rel]))
+        cands[rel].insert(t);
 
-      if (mut > 0) ds.mutateHeuristicEq(cands[dcl], cands[dcl], dcl, true);
-      ds.initializeAux(cands[dcl], bnd, i, pref);
+        if (mut > 0) ds.mutateHeuristicEq(cands[rel], cands[rel], rel, true);
+        ds.initializeAux(cands[rel], bnd, rel, i, pref);
+      }
     }
     if (dat > 0) ds.getDataCandidates(cands);
 
