@@ -18,6 +18,7 @@ namespace ufo
     // Keep the current return values
     std::map<Expr,int> values_inds;
     ExprVector &constructors;
+    ExprVector &accessors;
     ExprVector &assumptions;
 
     ExprSet &decls;
@@ -35,8 +36,8 @@ namespace ufo
     map<Expr, Expr> interpretations;
 
   public:
-    CHCSolver(ExprVector& _constructors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, ExprVector &_assms, vector<HornRuleExt> &_chcs, bool _nonadtPriority = false, bool _ignoreBase = false) :
-      constructors(_constructors), adts(_adts), efac(_efac), decls(_decls), assumptions(_assms), chcs(_chcs), givePriority(_nonadtPriority), ignoreBaseVar(_ignoreBase) {}
+    CHCSolver(ExprVector& _constructors, ExprVector& _accessors, ExprSet& _adts, ExprFactory &_efac, ExprSet &_decls, ExprVector &_assms, vector<HornRuleExt> &_chcs, bool _nonadtPriority = false, bool _ignoreBase = false) :
+      constructors(_constructors), accessors(_accessors), adts(_adts), efac(_efac), decls(_decls), assumptions(_assms), chcs(_chcs), givePriority(_nonadtPriority), ignoreBaseVar(_ignoreBase) {}
 
     Expr createNewApp(HornRuleExt chc, int i, int ind) {
       ExprVector types;
@@ -92,6 +93,17 @@ namespace ufo
           }
         }
       }
+      // TODO: HERE I NEED TO CHECK IF WHAT I HAVE ON THE RIGHT IS AN ACCESSOR
+      if ((elem->right()->arity() == 2) && isAccessor(bind::fname(elem->right()))) {
+        matching[elem->right()] = elem->left();
+        return true;
+      }
+
+      else if ((elem->left()->arity() == 2) && isAccessor(bind::fname(elem->left()))) {
+        matching[elem->left()] = elem->right();
+        return true;
+      }
+      // TODO: HERE I CAN CHECK IF ACCESSOR, AND THEN DO THE REVERSE MATCHING, SO HEAD(SMTH) -> X, NOT X -> HEAD(SMTH)
       if ((elem->left()->arity() == 1) && !(isConstructor(bind::fname(elem->left())))) {
           matching[elem->left()] = elem->right();
           return true;
@@ -125,6 +137,11 @@ namespace ufo
 
     bool isConstructor(Expr elem) {
       return std::find(constructors.begin(), constructors.end(), elem) != constructors.end();
+    }
+
+
+    bool isAccessor(Expr elem) {
+      return std::find(accessors.begin(), accessors.end(), fname(elem)) != accessors.end();
     }
 
     Expr createDestination(HornRuleExt chc) {
@@ -465,10 +482,8 @@ namespace ufo
           // add functions for filter variables here
           if (ignoreBaseVar) excludeBaseVar(cur, idxs);
           if (givePriority) givePriorityNonAdt(cur, idxs);
-           // outs() << *chc.dstRelation->left() << " " << idxs.size() << "\n";
           for (int i = idxs.size() - 1; i >= 0; --i) {
             buf[chc.dstRelation->left()] = idxs[i];
-            // outs() << *chc.dstRelation->left() << " " << idxs[i] << "\n";
             if (findInterpretations(idx + 1, buf))
               return true;
           }
@@ -481,7 +496,6 @@ namespace ufo
     bool solve() {
       // Order current uninterpreted predicate symbols
       for (auto & decl: decls) {
-        // outs() << *decl << "\n";
         ExprSet cur_decls;
         if (!orderDecls(decl, cur_decls))
           return false;
@@ -581,6 +595,7 @@ namespace ufo
     // ruleManager.print();
 
     ExprVector constructors;
+    ExprVector accessors;
 
     ExprSet& decls = ruleManager.decls;
 
@@ -589,7 +604,12 @@ namespace ufo
       adts.insert(a->last());
     }
 
-    CHCSolver sol (constructors, adts, efac, decls, ruleManager.extras, ruleManager.chcs,
+    for (auto & a : z3.getAdtAccessors()) {
+      accessors.push_back(regularizeQF(a));
+      adts.insert(a->last());
+    }
+
+    CHCSolver sol (constructors, accessors, adts, efac, decls, ruleManager.extras, ruleManager.chcs,
       givePriorityNonAdt, ignoreBaseVar);
     bool res = containsOp<ARRAY_TY>(conjoin(decls, efac)) ? sol.solveArr() : sol.solve();
     outs () << (res ? "sat\n" : "unknown\n");

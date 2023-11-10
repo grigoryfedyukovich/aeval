@@ -1148,9 +1148,8 @@ namespace expr
   {
     if (expr->use_count () > 1)
       {
-	DagVisitCache::const_iterator cit 
-	  = cache.find (&*expr);
-	if (cit != cache.end ()) return cit->second;
+        DagVisitCache::const_iterator cit = cache.find (&*expr);
+        if (cit != cache.end ()) return cit->second;
       }
     
     
@@ -1163,39 +1162,37 @@ namespace expr
       res = va.getExpr ();
     else
       {
-	res = va.isChangeDoKidsRewrite () ? va.getExpr () : expr;
-	if (res->arity () > 0) 
-	  {
-	    bool changed = false;
-            std::vector<Expr> kids;
+          res = va.isChangeDoKidsRewrite () ? va.getExpr () : expr;
+          if (res->arity () > 0)
+          {
+            bool changed = false;
+                std::vector<Expr> kids;
 
-	    for (ENode::args_iterator b = res->args_begin (), 
-		   e = res->args_end (); 
-		 b != e; ++b)
-	      {
-		Expr k = visit (v, *b, cache);
-		kids.push_back (k);
-		changed  = (changed || k.get () != *b);
-	      }
-	    
-	    if (changed)
-	      {
-		if (!res->isMutable ())
-		  res = res->getFactory ().mkNary (res->op (),
-						   kids.begin (),
-						   kids.end ());
-		else
-		  res->renew_args (kids.begin (), kids.end ());
-	      }
-	  }
+            for (ENode::args_iterator b = res->args_begin (), e = res->args_end ();   b != e; ++b)
+              {
+                  Expr k = visit (v, *b, cache);
+                  kids.push_back (k);
+                  changed  = (changed || k.get () != *b);
+              }
+
+            if (changed)
+              {
+                if (!res->isMutable ())
+                  res = res->getFactory ().mkNary (res->op (),
+                                   kids.begin (),
+                                   kids.end ());
+                else
+                  res->renew_args (kids.begin (), kids.end ());
+              }
+          }
     
-	res = va.rewrite (res);
+        res = va.rewrite (res);
       }
 
     if (expr->use_count () > 1)
       {
-	expr->Ref ();
-	cache[&*expr] = res;
+        expr->Ref ();
+        cache[&*expr] = res;
       }
     
     return res;
@@ -2244,11 +2241,12 @@ namespace expr
       template <typename Range>
       Expr fapp (Expr fdecl, const Range &args)
       {
-	ExprVector _args;
-	_args.push_back (fdecl);
-	_args.insert (_args.end (), boost::begin (args), boost::end (args));
-	return mknary<FAPP> (_args);
+        ExprVector _args;
+        _args.push_back (fdecl);
+        _args.insert (_args.end (), boost::begin (args), boost::end (args));
+        return mknary<FAPP> (_args);
       }
+
 
       inline Expr fapp (Expr fdecl, Expr a0, Expr a1 = Expr(), 
 			Expr a2 = Expr())
@@ -2285,10 +2283,9 @@ namespace expr
       
       template <typename T> bool isFdecl (Expr v)
       {
-	return isOpX<FDECL> (v) && isOpX<T> (rangeTy (v));
+        return isOpX<FDECL> (v) && isOpX<T> (rangeTy (v));
       }
-      
-      
+
       /** constant is an applied nullary function */
       template <typename T> bool isConst (Expr v)
       {
@@ -2360,27 +2357,27 @@ namespace expr
 
       struct FAPP_PS
       {
-	static inline void print (std::ostream &OS,
-				  int depth, 
-				  int brkt,
-				  const std::string &name,
-				  const std::vector<ENode*> &args)
-	{
-	  if (args.size () > 1) OS << "(";
+            static inline void print (std::ostream &OS,
+                          int depth,
+                          int brkt,
+                          const std::string &name,
+                          const std::vector<ENode*> &args)
+            {
+              if (args.size () > 1) OS << "(";
 
-	  // -- strip fdecl if there is one
-	  ENode *fname = args [0];
-	  if (isOpX<FDECL> (fname)) fname = fname->arg (0);
-	  fname->Print (OS, depth+2, false);
+              // -- strip fdecl if there is one
+              ENode *fname = args [0];
+              if (isOpX<FDECL> (fname)) fname = fname->arg (0);
+              fname->Print (OS, depth+2, false);
 
-	  for (unsigned i = 1; i < args.size (); ++i)
-	    {
-	      OS << " ";
-	      args [i]->Print (OS, depth+2, false);
-	    }
-	  
-	  if (args.size () > 1) OS << ")";
-	}
+              for (unsigned i = 1; i < args.size (); ++i)
+                {
+                  OS << " ";
+                  args [i]->Print (OS, depth+2, false);
+                }
+
+              if (args.size () > 1) OS << ")";
+            }
 	
       };
       

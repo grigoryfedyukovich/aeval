@@ -189,7 +189,6 @@ namespace ufo
   Expr z3_from_smtlib_file (Z &z3, const char *fname)
   {
       z3::context &ctx = z3.get_ctx ();
-
       Z3_ast_vector b = Z3_parse_smtlib2_file (ctx, fname, 0, NULL, NULL, 0, NULL, NULL);
       Z3_ast* args = new Z3_ast[Z3_ast_vector_size(ctx, b)];
 
@@ -286,6 +285,7 @@ namespace ufo
   protected:
     z3::context &get_ctx () { return ctx; }
     std::vector<Expr> adts;
+    std::vector<Expr> accessors;
 
     z3::ast toAst (Expr e)
     {
@@ -298,7 +298,7 @@ namespace ufo
 
       ast_expr_map seen;
       std::vector<std::string> adts_seen;
-      return U::unmarshal (a, get_efac (), cache.right, seen, adts_seen, adts);
+      return U::unmarshal (a, get_efac (), cache.right, seen, adts_seen, adts, accessors);
     }
 
     ExprFactory &get_efac () { return efac; }
@@ -349,6 +349,7 @@ namespace ufo
     }
 
     ExprVector& getAdtConstructors(){ return adts; }
+    ExprVector& getAdtAccessors(){ return accessors; }
 
     template <typename Range>
     std::string toSmtLibDecls (const Range &rng)

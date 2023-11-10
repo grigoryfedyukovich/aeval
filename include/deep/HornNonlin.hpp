@@ -108,8 +108,9 @@ namespace ufo
       for (auto c = lin.begin(); c != lin.end(); )
       {
         Expr cnj = *c;
-        if (isOpX<FAPP>(cnj) && isOpX<FDECL>(cnj->left()))
+        if (isOpX<FAPP>(cnj))
         {
+          assert(isOpX<FDECL>(cnj->left()));
           Expr rel = cnj->arg(0);
           addDecl(rel);
           srcRelations.push_back(rel);

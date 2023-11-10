@@ -1,0 +1,10 @@
+(set-logic HORN)
+(declare-datatypes () ((Lst (cons (head Int) (tail Lst)) (nil))))
+(declare-fun length (Lst Int) Bool)
+(declare-fun ff () Bool)
+(assert (length nil 0))
+
+(assert (forall ((x Int) (xs Lst) (ys Lst) (l Int))
+       (=> (and (= xs (cons x ys)) (length ys l) (not (length (tail xs) l))) ff)))
+(assert (not ff))
+(check-sat)
