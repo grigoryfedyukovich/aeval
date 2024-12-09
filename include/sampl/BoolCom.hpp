@@ -74,6 +74,7 @@ namespace ufo
 
     density orAritiesDensity;
     map<int, map<int, density>> negDensity;
+    map<int, map<int, density>> negDensityTmp; // for reinit
     map<int, density> varDensity;
     vector<vector<set<int>>> varCombinations;
 
@@ -91,7 +92,7 @@ namespace ufo
         varInds.push_back(i);
       }
     }
-    
+
     ExprVector& getVars()
     {
       return vars;
@@ -169,12 +170,16 @@ namespace ufo
 
       vector<Bterm> terms;
 
+      int c = chooseByWeight(varDensity[arity]);
+      if (isEmpty(negDensity[arity][c]))
+      {
+        negDensity[arity][c] = negDensityTmp[arity][c];      // simple reinitialization
+        return guessTerm(curTerm);
+      }
+
       // guess a combination of variables:
       vector<set<int>>& varCombination = varCombinations[arity];
-
-      int c = chooseByWeight(varDensity[arity]);
       set<int>& comb = varCombination[c];
-      if (isEmpty(negDensity[arity][c])) return false;
 
       int n = chooseByWeight(negDensity[arity][c]);
       for (int i : comb)
@@ -311,6 +316,8 @@ namespace ufo
           }
         }
       }
+
+      negDensityTmp = negDensity;
     }
 
     void calculateStatistics(Bdisj& bcs, bool freqs)

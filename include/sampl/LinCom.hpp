@@ -177,17 +177,6 @@ namespace ufo
     }
   }
 
-  inline int getVarIndex(int var, vector<int>& vec)
-  {
-    int i = 0;
-    for (int e: vec)
-    {
-      if (var == e) return i;
-      i++;
-    }
-    return -1;
-  }
-
   class LAfactory
   {
     private:
@@ -196,8 +185,8 @@ namespace ufo
     ExprVector vars;
 
     vector<int> varInds;
-    vector<int> intCoefs;
-    vector<int> intConsts;
+    vector<cpp_int> intCoefs;
+    vector<cpp_int> intConsts;
 
     ExprVector intCoefsE;    // symmetric vectors with Expressions
     ExprVector intConstsE;
@@ -238,12 +227,12 @@ namespace ufo
       vars.push_back(var);
     }
 
-    void addConst(int c)
+    void addConst(cpp_int c)
     {
       intConsts.push_back(c);
     }
 
-    void addIntCoef(int coef)
+    void addIntCoef(cpp_int coef)
     {
       intCoefs.push_back(coef);
     }
@@ -270,13 +259,13 @@ namespace ufo
       indexGE = cmpOps.size() - 1;
 
 //      // finally, map values to expressions
-      for (auto a : intCoefs) intCoefsE.push_back(mkTerm (mpz_class (a), m_efac));    // assemble expressions
-      for (auto a : intConsts) intConstsE.push_back(mkTerm (mpz_class (a), m_efac));  //
+      for (auto &a : intCoefs) intCoefsE.push_back(mkMPZ(a, m_efac));    // assemble expressions
+      for (auto &a : intConsts) intConstsE.push_back(mkMPZ(a, m_efac));  //
 
       for (auto &a : nonlinVars) nonlinVarsSet.insert(a.second);
     }
 
-    vector<int>& getConsts()
+    vector<cpp_int>& getConsts()
     {
       return intConsts;
     }
@@ -309,7 +298,7 @@ namespace ufo
       return (ind == 0) ? 1 : 0;
     }
 
-    int getIntCoef(int i)
+    cpp_int getIntCoef(int i)
     {
       return intCoefs[i];
     }
@@ -343,9 +332,7 @@ namespace ufo
         apps.push_back(mk<MULT>(coef, var));
       }
 
-      if (s.arity == 1) return apps[0];
-
-      return mknary<PLUS> (apps);
+      return mkplus (apps, m_efac);
     }
 
     Expr toExpr (LAterm& s, bool replaceNonlin=true)
@@ -388,55 +375,30 @@ namespace ufo
       else if (isOpX<GEQ>(ex) || isOpX<GT>(ex))
       {
         LAterm s;
-        Expr lhs = ex->left();
-        ExprVector all;
-        if (isOpX<PLUS>(lhs))
-        {
-          for (auto it = lhs->args_begin (), end = lhs->args_end (); it != end; ++it)
-          {
-            all.push_back(*it);
-          }
-        }
-        else
-        {
-          all.push_back(lhs);
-        }
+        if (!isNumericConst(ex->right())) return;
 
+        ExprVector all;
+        getAddTerm (ex->left(), all);
         Expr aux = reBuildCmp(ex, auxVar1, auxVar2);
 
         s.arity = all.size();
         s.cmpop = getVarIndex(aux, cmpOps);
-        s.intconst = getVarIndex(lexical_cast<int>(ex->right()), intConsts);
+        s.intconst = getVarIndex(lexical_cast<cpp_int>(ex->right()), intConsts);
 
         if (s.intconst == -1 || s.cmpop == -1) return;
 
         for (auto &e : all)
         {
-          Expr curVar;
-          int curCoef;
+          Expr curVar = NULL;
+          cpp_int curCoef;
 
-          if (isOpX<MULT>(e))
+          ExprVector ops;
+          getMultOps (e, ops);
+          for (auto & o : ops)
           {
-            if (isNumericConst(e->left()))
-            {
-              curVar = e->right();
-              curCoef = lexical_cast<int>(e->left());
-            }
-            else
-            {
-              curVar = e->left();
-              curCoef = lexical_cast<int>(e->right());
-            }
-          }
-          else if (isOpX<UN_MINUS>(e))
-          {
-            curVar = e->left();
-            curCoef = -1;
-          }
-          else
-          {
-            curVar = e;
-            curCoef = 1;
+            if (isNumericConst(o)) curCoef = lexical_cast<cpp_int>(o);
+            else if (curVar != NULL) return;
+            else curVar = o;
           }
 
           int varind = getVarIndex(curVar, vars);
@@ -452,14 +414,13 @@ namespace ufo
         for(int v : s.vcs) if (v < 0) return;
 
         if (s.vcs.size() != 2*(s.arity)) return;
-
         addDisjFilter(s, sample);
       }
     }
 
-    int equalCoefs(LAterm& s)
+    cpp_int equalCoefs(LAterm& s)
     {
-      int pat = intCoefs[ s.vcs[1] ];
+      cpp_int pat = intCoefs[ s.vcs[1] ];
       for (int j = 3; j < s.vcs.size(); j = j+2)
         if (pat != intCoefs[ s.vcs[j] ])
           return 0;
@@ -472,14 +433,14 @@ namespace ufo
       clone(s, t);
       for (int i = 1; i < s.vcs.size(); i = i+2)
       {
-        int coef = intCoefs[ s.vcs[i] ];
+        auto coef = intCoefs[ s.vcs[i] ];
         int invcoef = getVarIndex(-coef, intCoefs);
         assert(invcoef != -1);
 
         t.vcs[i] = invcoef;
       }
 
-      int iconst = intConsts[ s.intconst ];
+      auto iconst = intConsts[ s.intconst ];
       int invconst = getVarIndex(-iconst, intConsts);
       assert(invconst != -1);
 
@@ -615,19 +576,19 @@ namespace ufo
       {
         LAterm& s = sample.dstate[i];
         Expr cmpop = cmpOps[ s.cmpop ];
-        int intconst = intConsts [ s.intconst ];
+        auto intconst = intConsts [ s.intconst ];
 
         // get the formulas equivalent to this one, and run the same procedure for them:
 
         // if (ax + ax > a) then we can replace a by b, c,... of the same sign
 
-        int coef = equalCoefs(s);
+        cpp_int coef = equalCoefs(s);
 
         if (coef != 0 && coef == intconst)
         {
           for (int j = 0; j < intCoefs.size(); j++)
           {
-            int thisConst = intCoefs[j];
+            auto thisConst = intCoefs[j];
             if (thisConst == coef) continue;
             if ((thisConst<0) != (coef<0)) continue;
 
@@ -652,7 +613,7 @@ namespace ufo
 
           for (int j = 0; j < intCoefs.size(); j++)
           {
-            int thisConst = intCoefs[j];
+            auto thisConst = intCoefs[j];
             if (thisConst == coef) continue;
             if ((thisConst<0) != (coef<0)) continue;
 
@@ -707,7 +668,9 @@ namespace ufo
       return true;
     }
 
-    bool guessTerm (LAdisj& curTerm, int arity)
+    // here, arity belongs to the whole candidate (incl. the boolean part),
+    // while linArity is the number of clauses only in arithmetic
+    bool guessTerm (LAdisj& curTerm, int arity, int linArity)
     {
       if (isEmpty(plusAritiesDensity[arity])) return false;
 
@@ -716,7 +679,7 @@ namespace ufo
 
       // first, guess var combinations:
 
-      for (int i = 0; i < arity; i++)
+      for (int i = 0; i < linArity; i++)
       {
         terms.push_back(LAterm());
         LAterm& la = terms.back();
@@ -729,7 +692,7 @@ namespace ufo
 
       // then, guess coefficients to complete the lin. combination
 
-      for (int i = 0; i < arity; i++)
+      for (int i = 0; i < linArity; i++)
       {
         LAterm& la = terms[i];
         for (int v : varcombs[i])
@@ -767,7 +730,7 @@ namespace ufo
 
       lincoms& id = curTerm.getId();
 
-      for (int i = 0; i < arity; i++)      // finally, guess operator and constant
+      for (int i = 0; i < linArity; i++)      // finally, guess operator and constant
       {
         LAterm& la = curTerm.dstate[i];
         guessNewInequality(id, i, la, arity);
@@ -1297,7 +1260,7 @@ namespace ufo
 
       for (auto &a : intConstDensity[ar])
       {
-        outs() << " IntConst density: " << intConsts[ a.first ] << " |--> " << a.second << "\n";
+        outs() << " IntConst density: " << *intConstsE[ a.first ] << " |--> " << a.second << "\n";
       }
 
       for (auto &a : cmpOpDensity[ar])
@@ -1324,8 +1287,8 @@ namespace ufo
       {
         for (int j = 0; j < getIntCoefsSize(); j++)
         {
-          outs() << " Var Coefficient density: [" << getIntCoef(j) << " * "
-          << *vars[i] << "] : " << coefDensity[ar][i][j] << "\n";
+          outs() << " Var Coefficient density: [" << *intCoefsE[j] << " * "
+            << *vars[i] << "] : " << coefDensity[ar][i][j] << "\n";
         }
       }
     }

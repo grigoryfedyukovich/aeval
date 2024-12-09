@@ -24,14 +24,19 @@ namespace ufo
     ufo::ZSolver<ufo::EZ3> m_smt_solver;
     vector<ufo::ZSolver<ufo::EZ3>> m_smt_safety_solvers;
     map<int, bool> safety_progress;
-    bool lightweight;
 
     CHCs& ruleManager;
-    vector<Expr> decls;
+    ExprVector decls;
     vector<vector<SamplFactory>> sfs;
-    vector<Expr> curCandidates;
+    ExprVector curCandidates;
 
     vector<map<int, Expr>> invarVars;
+    vector<ExprVector> invarVarsShort;
+
+    // for arrays
+    vector<ExprSet> arrCands;
+    vector<ExprVector> arrAccessVars;
+    vector<ExprSet> arrIterRanges;
 
     int invNumber;
     int numOfSMTChecks;
@@ -43,15 +48,19 @@ namespace ufo
     bool addepsilon;          // add some small probability to features that never happen in the code
     bool aggressivepruning;   // aggressive pruning of the search space based on SAT/UNSAT (WARNING: may miss some invariants)
 
-    bool printLog;
+    bool statsInitialized;
+    int printLog;
 
     public:
 
-    RndLearner (ExprFactory &efac, EZ3 &z3, CHCs& r, bool k, bool b1, bool b2, bool b3, bool l) :
-      m_efac(efac), m_z3(z3), ruleManager(r), m_smt_solver (z3), u(efac),
+    RndLearner (ExprFactory &efac, EZ3 &z3, CHCs& r, unsigned to, bool k, bool b1, bool b2, bool b3, int debug) :
+      m_efac(efac), m_z3(z3), ruleManager(r), m_smt_solver (z3), u(efac, to),
       invNumber(0), numOfSMTChecks(0), oneInductiveProof(true), kind_succeeded (!k),
-      densecode(b1), addepsilon(b2), aggressivepruning(b3), lightweight (l),
-      printLog(false){}
+      densecode(b1), addepsilon(b2), aggressivepruning(b3),
+      statsInitialized(false), printLog(debug)
+      {
+        if (printLog >= 2) ruleManager.print(printLog >= 4);
+      }
 
     // these things are needed for TermCheck.hpp
     // could be moved there at some point
@@ -59,11 +68,12 @@ namespace ufo
     {
       SamplFactory& sf = sfs[num].back();
       Expr f;
-      while (f == NULL) f = sf.getFreshLinCom();
+      while(f == NULL) f = sf.getFreshLinCom();
+      if(printLog >= 4) outs() << "FreshCandidate: " << f << "\n";
       return f;
     }
 
-    vector<int>& getAllConsts (int num = 0)
+    vector<cpp_int>& getAllConsts (int num = 0)
     {
       return sfs[num].back().lf.getConsts();
     }
@@ -77,11 +87,11 @@ namespace ufo
     bool isTautology (Expr a)     // adjusted for big disjunctions
     {
       if (isOpX<TRUE>(a)) return true;
-      
+
       ExprSet disjs;
       getDisj(a, disjs);
       if (disjs.size() == 1) return false;
-      
+
       map<ExprSet, ExprSet> varComb;
       for (auto &a : disjs)
       {
@@ -94,7 +104,7 @@ namespace ufo
       if (varComb.size() == 0) return false;
 
       m_smt_solver.reset();
-      
+
       bool res = false;
       for (auto &v : varComb)
       {
@@ -112,9 +122,9 @@ namespace ufo
       for (auto &hr: ruleManager.chcs)
       {
         if (hr.isQuery) continue;
-        
+
         m_smt_solver.reset();
-        
+
         int ind1;  // to be identified later
         int ind2 = getVarIndex(hr.dstRelation, decls);
 
@@ -123,7 +133,7 @@ namespace ufo
         Expr cand1;
         Expr cand2;
         Expr lmApp;
-      
+
         // pushing src relation
         if (!isOpX<TRUE>(hr.srcRelation))
         {
@@ -145,7 +155,7 @@ namespace ufo
           }
           m_smt_solver.assertExpr(lmApp);
         }
-        
+
         // pushing dst relation
         cand2 = curCandidates[ind2];
 
@@ -153,9 +163,9 @@ namespace ufo
         {
           cand2 = replaceAll(cand2, v.second, hr.dstVars[v.first]);
         }
-        
+
         m_smt_solver.assertExpr(mk<NEG>(cand2));
-        
+
         numOfSMTChecks++;
         boost::tribool res = m_smt_solver.solve ();
         if (res)    // SAT   == candidate failed
@@ -239,7 +249,7 @@ namespace ufo
         }
       }
 
-      BndExpl bnd(ruleManager, allLemmas);
+      BndExpl bnd(ruleManager, allLemmas, printLog);
 
       int i;
       for (i = 2; i < 5; i++) // 2 - a reasanoble lowerbound, 5 - a hardcoded upperbound
@@ -276,7 +286,7 @@ namespace ufo
         return;
       }
 
-      BndExpl be(ruleManager);
+      BndExpl be(ruleManager, printLog);
       Expr cand;
       int k = 0;
       while (k < bnd)
@@ -298,7 +308,7 @@ namespace ufo
 
     bool checkBoundedProofs (ExprSet& itpCandidates)
     {
-      assert(invNumber == 1);
+      if (invNumber == 1) return false; // not supported yet
 
       for (auto it = itpCandidates.begin(), end = itpCandidates.end(); it != end; )
       {
@@ -356,7 +366,7 @@ namespace ufo
         }
 
         m_smt_safety_solvers[num-1].assertExpr(invApp);
-        safety_progress[num-1] = !m_smt_safety_solvers[num-1].solve ();
+        safety_progress[num-1] = bool(!m_smt_safety_solvers[num-1].solve ());
 
         numOfSMTChecks++;
       }
@@ -377,25 +387,6 @@ namespace ufo
           safety_progress[safety_progress.size()] = false;
         }
       }
-    }
-    
-    void serializeInvariants(vector<ExprSet>& invs, const char * outfile)
-    {
-      if (!oneInductiveProof)
-      {
-        outs() << "\nCurrently unable to serialize k-inductive invariants\n";
-        return;
-      }
-
-      ofstream invfile;
-      invfile.open (string(outfile));
-      m_smt_solver.reset();
-
-      for (auto & i : invs) m_smt_solver.assertExpr(conjoin(i, m_efac));
-
-      m_smt_solver.toSmtLib (invfile);
-      invfile.flush ();
-      outs () << "\nInvariant serialized to " << outfile << "\n";
     }
 
     void updateRels()
@@ -445,8 +436,10 @@ namespace ufo
         for (auto & var : invarVars[ind]) sf_after.addVar(var.second);
         sf_after.lf.nonlinVars = sf_before.lf.nonlinVars;
 
-        ExprSet stub;
-        doSeedMining(decls[ind], stub);
+        set<cpp_int> progConsts, intCoefs;
+        ExprSet cands;
+        doSeedMining(decls[ind], cands, progConsts, intCoefs);
+        initializeSamlp(decls[ind], cands, progConsts, intCoefs);
 
         sf_after.calculateStatistics(densecode, addepsilon);
         for (auto a : sf_before.learnedExprs)
@@ -460,13 +453,15 @@ namespace ufo
 
     void initializeDecl(Expr invDecl)
     {
-      assert (invDecl->arity() > 2);
+      if (printLog) outs () << "\nINITIALIZE PREDICATE " << invDecl << "\n====================\n";
+//      assert (invDecl->arity() > 2);
       assert(decls.size() == invNumber);
       assert(sfs.size() == invNumber);
       assert(curCandidates.size() == invNumber);
-      
-      decls.push_back(invDecl->arg(0));
+
+      decls.push_back(invDecl);
       invarVars.push_back(map<int, Expr>());
+      invarVarsShort.push_back(ExprVector());
 
       curCandidates.push_back(NULL);
 
@@ -474,78 +469,76 @@ namespace ufo
       sfs.back().push_back(SamplFactory (m_efac, aggressivepruning));
       SamplFactory& sf = sfs.back().back();
 
-      for (int i = 0; i < ruleManager.invVars[decls.back()].size(); i++)
+      for (int i = 0; i < ruleManager.invVars[invDecl].size(); i++)
       {
-        Expr var = ruleManager.invVars[decls.back()][i];
-        if (sf.addVar(var)) invarVars[invNumber][i] = var;
+        Expr var = ruleManager.invVars[invDecl][i];
+        if (sf.addVar(var))
+        {
+          invarVars[invNumber][i] = var;
+          invarVarsShort[invNumber].push_back(var);
+        }
       }
+
+      arrCands.push_back(ExprSet());
+      arrAccessVars.push_back(ExprVector());
+      arrIterRanges.push_back(ExprSet());
 
       invNumber++;
     }
 
-    void doSeedMining(Expr invRel, ExprSet& cands)
+    bool initializedDecl(Expr invDecl)
     {
-      vector<SeedMiner> css;
-      set<int> progConstsTmp;
-      set<int> progConsts;
-      set<int> intCoefs;
-      
+      return find (decls.begin(), decls.end(), invDecl) != decls.end();
+    }
+
+    virtual void doSeedMining(Expr invRel, ExprSet& cands, set<cpp_int>& progConsts, set<cpp_int>& intCoefs)
+    {
       int ind = getVarIndex(invRel, decls);
       SamplFactory& sf = sfs[ind].back();
-
-      // init boolean combinations quickly
-      sf.bf.initialize();
-
-      // analize each rule separately:
+      // analyze each rule separately:
       for (auto &hr : ruleManager.chcs)
       {
         if (hr.dstRelation != invRel && hr.srcRelation != invRel) continue;
 
-        css.push_back(SeedMiner(hr, invRel, invarVars[ind], sf.lf.nonlinVars, !lightweight));
-        css.back().analyzeCode();
-
-        if (hr.isInductive) css.back().analyzeExtras(cands);
+        SeedMiner sm(hr, invRel, invarVars[ind], sf.lf.nonlinVars);
+        sm.analyzeCode();
 
         // convert intConsts to progConsts and add additive inverses (if applicable):
-        for (auto &a : css.back().intConsts)
-        {
-          progConstsTmp.insert( a);
-          progConstsTmp.insert(-a);
-        }
-
-        // same for intCoefs
-        for (auto &a : css.back().intCoefs) intCoefs.insert(a);
+        for (auto &a : sm.intConsts) progConsts.insert(a);
+        for (auto &a : sm.intCoefs) intCoefs.insert(a); // same for intCoefs
+        for (auto &a : sm.candidates) cands.insert(a);
       }
+    }
 
-      cands.clear();
-
+    void initializeSamlp(Expr invRel, ExprSet& cands, set<cpp_int>& progConsts, set<cpp_int>& intCoefs)
+    {
+      int ind = getVarIndex(invRel, decls);
+      SamplFactory& sf = sfs[ind].back();
       if (sf.lf.nonlinVars.size() > 0)
       {
-        if (printLog) outs() << "Multed vars: ";
+        if (printLog >= 3) outs() << "Multed vars: ";
         for (auto &a : sf.lf.nonlinVars)
         {
-          if (printLog) outs() << *a.first << " = " << *a.second << "\n";
+          if (printLog >= 3) outs() << *a.first << " = " << *a.second << "\n";
           sf.lf.addVar(a.second);
           Expr b = a.first->right();
-          if (isNumericConst(b)) intCoefs.insert(lexical_cast<int>(b));
+          if (isNumericConst(b)) intCoefs.insert(lexical_cast<cpp_int>(b));
         }
       }
 
+      for (auto &c : progConsts) progConsts.insert(-c);
       for (auto &a : intCoefs) intCoefs.insert(-a);
       for (auto &a : intCoefs) if (a != 0) sf.lf.addIntCoef(a);
 
-      for (auto &a : intCoefs)
-      {
-        for (auto &b : progConstsTmp)
-        {
+      auto progConstsTmp = progConsts;
+      for (auto &a : progConstsTmp)
+        for (auto &b : intCoefs)
           progConsts.insert(a*b);
-        }
-      }
 
       // sort progConsts and push to vector:
       while (progConsts.size() > 0)
       {
-        int min = INT_MAX;
+        cpp_int min = *progConsts.begin();
         for (auto c : progConsts)
         {
           if (c < min)
@@ -557,44 +550,38 @@ namespace ufo
         sf.lf.addConst(min);
       }
 
-      sf.lf.initialize();
-
-      ExprSet allCands;
-      for (auto &cs : css)
-      {
-        for (auto &cand : cs.candidates)
-        {
-          allCands.insert(cand);
-        }
-      }
+      sf.initialize(arrCands[ind], arrAccessVars[ind], arrIterRanges[ind]);
 
       // normalize samples obtained from CHCs
-      for (auto & cand : allCands)
-      {
-        Sampl& s = sf.exprToSampl(cand);
-        if (s.arity() > 0)
-        {
-          cands.insert(sf.sampleToExpr(s));
-        }
-      }
+      for (auto & cand : cands) Sampl& s = sf.exprToSampl(cand);
+    }
+
+    void prepareSeeds (Expr invRel, ExprSet& cands)
+    {
+      if (printLog) outs () << "\nSEED MINING for " << invRel << "\n===========\n";
+      set<cpp_int> progConsts, intCoefs;
+      doSeedMining(invRel, cands, progConsts, intCoefs);
+      initializeSamlp(invRel, cands, progConsts, intCoefs);
     }
 
     void calculateStatistics()
     {
+      statsInitialized = true;
       for (int i = 0; i < invNumber; i++)
       {
         sfs[i].back().calculateStatistics(densecode, addepsilon);
 
-        if (printLog)
+        if (printLog >= 3)
         {
-          outs() << "\nStatistics for " << *decls[i] << "\n";
+          outs() << "\nSTATISTICS for " << *decls[i] << "\n===============\n";
           sfs[i].back().printStatistics();
         }
       }
     }
 
-    void synthesize(int maxAttempts, char * outfile, ExprSet& itpCands)
+    void synthesize(int maxAttempts, ExprSet& itpCands)
     {
+      if (printLog) outs () << "\nSAMPLING\n===============\n";
       bool success = false;
       int iter = 1;
 
@@ -635,7 +622,7 @@ namespace ufo
 
         if (printLog)
         {
-          outs() << "\n  ---- new iteration " << iter <<  " ----\n";
+          outs() << "\n  ---- iteration " << iter <<  " ----\n";
           for (int j = 0; j < invNumber; j++)
             outs () << "candidate for " << *decls[j] << ": " << *curCandidates[j] << "\n";
         }
@@ -663,22 +650,17 @@ namespace ufo
 
         for (auto &cand : curCandidates) cand = NULL; // preparing for the next iteration
       }
-      
-      if (success) outs () << "\n -----> Success after " << --iter      << " iterations\n";
-      else         outs () <<      "\nNo success after " << maxAttempts << " iterations\n";
-      
-      for (int j = 0; j < invNumber; j++)
-        outs () << "        number of sampled lemmas for " << *decls[j] << ": "
-          << sfs[j].back().learnedExprs.size() << "\n";
 
-      outs () << "        number of SMT checks: " << numOfSMTChecks << "\n";
+      if (success) outs () << "Success after " << --iter      << " iterations\n";
+      else         outs () <<      "Unknown after " << maxAttempts << " iterations\n";
 
-      if (success && outfile != NULL)
-      {
-        vector<ExprSet> invs;
-        for (auto & sf : sfs) invs.push_back(sf.back().learnedExprs);
-        serializeInvariants(invs, outfile);
-      }
+      if (printLog)
+        for (int j = 0; j < invNumber; j++)
+          outs () << "        number of sampled lemmas for " << *decls[j] << ": "
+            << sfs[j].back().learnedExprs.size() << "\n";
+
+      if (printLog) outs () << "        number of SMT checks: " << numOfSMTChecks << "\n";
+      if (success) printSolution();
     }
 
     void checkAllLemmas(vector<ExprSet>& lms, vector<ExprSet>& curMinLms, int& numTries, int invInd)
@@ -701,17 +683,47 @@ namespace ufo
         }
       }
     }
+
+    void simplifyLemmas()
+    {
+      for (int i = 0; i < decls.size(); i++)
+      {
+        Expr rel = decls[i];
+        SamplFactory& sf = sfs[i].back();
+        u.removeRedundantConjuncts(sf.learnedExprs);
+      }
+    }
+
+    void printSolution(bool simplify = true)
+    {
+      for (int i = 0; i < decls.size(); i++)
+      {
+        Expr rel = decls[i];
+        SamplFactory& sf = sfs[i].back();
+        ExprSet lms = sf.learnedExprs;
+        outs () << "(define-fun " << *rel << " (";
+        for (auto & b : ruleManager.invVars[rel])
+        outs () << "(" << *b << " " << u.varType(b) << ")";
+        outs () << ") Bool\n  ";
+        Expr tmp = conjoin(lms, m_efac);
+        if (simplify && !containsOp<FORALL>(tmp)) u.removeRedundantConjuncts(lms);
+        Expr res = simplifyArithm(conjoin(lms, m_efac));
+        u.print(res);
+        outs () << ")\n";
+        assert(hasOnlyVars(res, ruleManager.invVars[rel]));
+      }
+    }
   };
 
-  inline void learnInvariants(string smt, char * outfile, int maxAttempts,
-                              bool kind=false, int itp=0, bool b1=true, bool b2=true, bool b3=true)
+  inline void learnInvariants(string smt, unsigned to, int maxAttempts,
+                              bool kind, int itp, bool b1, bool b2, bool b3, int debug)
   {
     ExprFactory m_efac;
     EZ3 z3(m_efac);
 
     CHCs ruleManager(m_efac, z3);
     ruleManager.parse(smt);
-    RndLearner ds(m_efac, z3, ruleManager, kind, b1, b2, b3, false);
+    RndLearner ds(m_efac, z3, ruleManager, to, kind, b1, b2, b3, debug);
 
     ds.setupSafetySolver();
     std::srand(std::time(0));
@@ -730,84 +742,15 @@ namespace ufo
       ds.bootstrapBoundedProofs(itp, itpCands);
     }
 
-    ExprSet stub;
     for (auto& dcl: ruleManager.decls)
     {
-      ds.initializeDecl(dcl);
-      ds.doSeedMining(dcl->arg(0), stub);
+      ds.initializeDecl(dcl->left());
+      ds.prepareSeeds(dcl->left(), itpCands); // itpCands isn't used
     }
 
     ds.calculateStatistics();
-
-    ds.synthesize(maxAttempts, outfile, itpCands);
+    ds.synthesize(maxAttempts, itpCands);
   };
-
-
-  inline void getInductiveValidityCore (const char * chcfile, const char * invfile)
-  {
-    ExprFactory m_efac;
-    EZ3 z3(m_efac);
-
-    CHCs ruleManager(m_efac, z3);
-    ruleManager.parse(string(chcfile));
-    RndLearner ds(m_efac, z3, ruleManager, false, false, false, false, false);
-    ds.setupSafetySolver();
-
-    vector<string> invNames;
-    for (auto& dcl: ruleManager.decls)
-    {
-      ds.initializeDecl(dcl);
-      invNames.push_back(lexical_cast<string>(dcl->arg(0)));
-    }
-
-    Expr invTmp = z3_from_smtlib_file (z3, invfile);
-
-    vector<Expr> invs;
-    if (ruleManager.decls.size() == 1) invs.push_back(invTmp);
-    else
-    {
-      // each assert in invfile corresponds to an invariant
-      // after deserialization, all asserts are conjoined; so we need to split them now
-      for (int i = 0; i < ruleManager.decls.size(); i++)
-      {
-        invs.push_back(invTmp->arg(i));
-      }
-    }
-
-    vector<ExprSet> lms;
-    vector<vector<int>> sizeHistories;
-
-    for (auto & inv : invs)
-    {
-      vector<int> sizeHistory;
-      sizeHistory.push_back(isOpX<AND>(inv) ? inv->arity() : (isOpX<TRUE>(inv) ? 0 : 1));
-
-      SMTUtils u(m_efac);
-      inv = u.removeRedundantConjuncts(inv);       // rough simplification first
-
-      sizeHistory.push_back(isOpX<AND>(inv) ? inv->arity() : (isOpX<TRUE>(inv) ? 0 : 1));
-      sizeHistories.push_back(sizeHistory);
-
-      ExprSet lm;
-      getConj(inv, lm);
-      lms.push_back(lm);
-    }
-
-    vector<ExprSet> lmsMin = lms;
-
-    for (int i = 0; i < invs.size(); i++)
-    {
-      outs () << "Size reduction for " << invNames[i] << ": ";
-      for (auto a : sizeHistories[i]) outs () << a << " -> ";
-      int numTries = 0;
-      ds.checkAllLemmas(lms, lmsMin, numTries, i); // accurate simplification then
-      assert (numTries > 1);
-
-      outs () << lmsMin[i].size() << "\n";
-    }
-
-    ds.serializeInvariants(lmsMin, invfile);
-  }
 }
 
 #endif

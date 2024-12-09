@@ -5,6 +5,7 @@
 #include "ae/ExprSimpl.hpp"
 #include "LinCom.hpp"
 #include "BoolCom.hpp"
+#include "ArrCom.hpp"
 
 using namespace std;
 using namespace boost;
@@ -35,21 +36,24 @@ namespace ufo
     private:
     ExprFactory &m_efac;
 
-    ExprVector vars;
     vector<Sampl> samples;
 
     density hasBooleanComb;
     density orAritiesDensity;
+    bool hasArrays = false;
 
     public:
 
     LAfactory lf;
     Bfactory bf;
+    ARRfactory af;
 
     ExprSet learnedExprs;
 
+    int initialized = 0;
+
     SamplFactory(ExprFactory &_efac, bool aggp) :
-      m_efac(_efac), lf(_efac, aggp), bf(_efac) {}
+      m_efac(_efac), lf(_efac, aggp), bf(_efac), af(_efac, aggp) {}
 
     Expr getAllLemmas()
     {
@@ -69,7 +73,28 @@ namespace ufo
         lf.addVar(var);
         added = true;
       }
+      else if (bind::isConst<ARRAY_TY> (var))
+      {
+        af.addVar(var);
+        added = true;
+        hasArrays = true;
+      }
       return added;
+    }
+
+    void initialize(ExprSet& arrCands, ExprVector& arrAccessVars, ExprSet& arrRange)
+    {
+      bf.initialize();
+      lf.initialize();
+      if (hasArrays)
+      {
+        if (!arrAccessVars.empty() && !arrRange.empty())
+        {
+          af.initialize(lf.getVars(), arrCands, arrAccessVars, arrRange);
+          initialized++;
+        }
+      }
+      initialized++;
     }
 
     Sampl& exprToSampl(Expr ex)
@@ -104,6 +129,13 @@ namespace ufo
       int maxArity = 0;
       set<int> orArities;
 
+      if (lf.getVars().size() > 0 && samples.size() == 0)
+      {
+        // artificially add one default sample in case there is nothing here
+        // TODO: find a better solution
+        exprToSampl (mk<GEQ>(lf.getVars()[0], mkTerm<string>("0", m_efac)));
+      }
+
       for (auto &s : samples)
       {
         maxArity = max (maxArity, s.arity());
@@ -117,7 +149,6 @@ namespace ufo
           orArities.insert(i);
       }
 
-      assert(orArities.size() > 0);
       lf.initDensities(orArities);
       bf.initDensities();
 
@@ -164,23 +195,39 @@ namespace ufo
       samples.push_back(Sampl());
       Sampl& curCand = samples.back();
 
-      if (!lf.guessTerm(curCand.l_part, 1)) return NULL;
+      if (!lf.guessTerm(curCand.l_part, 1, 1)) return NULL;
       curCand.l_part.normalizePlus();
       return lf.toExpr(curCand.l_part);
     }
 
-    Expr getFreshCandidate()
+    Expr getFreshCandidate(bool arrSimpl = true)
     {
+      // for now, if a CHC system has arrays, we try candidates only with array
+      // in the future, we will need arithmetic candidates as well
+      if (hasArrays && initialized == 2)
+      {
+        Expr cand = arrSimpl ? af.guessSimplTerm() : af.guessTerm();
+        if (cand != NULL)
+        {
+          for (auto & v : lf.nonlinVars) cand = replaceAll(cand, v.second, v.first);
+          return cand;
+        }
+      }
+
+      if (orAritiesDensity.empty()) return NULL;
+
       int arity = chooseByWeight(orAritiesDensity);
       int hasBool = chooseByWeight(hasBooleanComb);
       int hasLin = arity - hasBool;
+    //  outs() << "arity, hasBool, hasLin\n";
+    //  outs() << arity << "    " << hasBool << "    " << hasLin << "\n";
       samples.push_back(Sampl());
       Sampl& curCand = samples.back();
 
       Expr lExpr;
       if (hasLin > 0)
       {
-        if (!lf.guessTerm(curCand.l_part, hasLin)) return NULL;
+        if (!lf.guessTerm(curCand.l_part, arity, hasLin)) return NULL;
         curCand.l_part.normalizePlus();
         lExpr = lf.toExpr(curCand.l_part);
       }
@@ -260,7 +307,7 @@ namespace ufo
       if (lf.getConsts().size() > 0)
       {
         outs() << "\nInt consts:\n";
-        for (auto &form: lf.getConsts()) outs() << form << ", ";
+        for (auto &form: lf.getConsts()) outs() << lexical_cast<string>(form) << ", ";
         outs() << "\b\b \n";
 
         for (auto &ar : orAritiesDensity) lf.printCodeStatistics(ar.first);

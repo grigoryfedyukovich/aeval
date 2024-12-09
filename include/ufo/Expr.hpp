@@ -49,6 +49,10 @@ DM-0002198
 #include <boost/pool/pool.hpp>
 #include <boost/pool/pool_alloc.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/multiprecision/cpp_int.hpp>
+
+#undef TRUE
+#undef FALSE
 
 #define mk_it_range boost::make_iterator_range
 
@@ -855,13 +859,13 @@ namespace expr
 	for (std::vector<ENode*>::const_iterator it = args.begin (), 
 	       end = args.end (); it != end; ++it)
 	  {
-	    OS << "\n";
-	    space (OS, depth + 2);
+	    OS << "    ";
+//      space (OS, depth + 2);
 	    (*it)->Print (OS, depth + 2, false);
 	  }
 
-	OS << "\n";
-	space (OS, depth);
+//  OS << "\n";
+//  space (OS, depth);
 	OS << "]";
       }
     };
@@ -2103,6 +2107,8 @@ namespace expr
     NOP(UNINT_TY,"UNINT",PREFIX,SimpleTypeOp)
     /** Array Type */
     NOP(ARRAY_TY,"ARRAY",PREFIX,SimpleTypeOp)
+    /** stub for ADTs **/
+    NOP(AD_TY,"",PREFIX,SimpleTypeOp)
   }
 
   namespace op
@@ -2112,6 +2118,7 @@ namespace expr
       inline Expr intTy (ExprFactory &efac) {return mk<INT_TY> (efac);}
       inline Expr boolTy (ExprFactory &efac) {return mk<BOOL_TY> (efac);}
       inline Expr realTy (ExprFactory &efac) {return mk<REAL_TY> (efac);}
+      inline Expr adTy (Expr name) {return mk<AD_TY> (name);}
       inline Expr arrayTy (Expr indexTy, Expr valTy) 
       {return mk<ARRAY_TY> (indexTy, valTy);}
       
@@ -2212,7 +2219,8 @@ namespace expr
       { return constDecl (name, mk<INT_TY> (name->efac ())); }
       inline Expr realConstDecl (Expr name)
       { return constDecl (name, mk<REAL_TY> (name->efac ())); }
-      
+      inline Expr adtConstDecl (Expr name)
+      { return constDecl (name, mk<AD_TY> (name->efac ())); }
       
       template <typename Range>
       Expr fdecl (Expr fname, const Range &args)
@@ -2290,13 +2298,13 @@ namespace expr
       inline Expr boolConst (Expr name) { return fapp (boolConstDecl (name)); }
       inline Expr intConst (Expr name) { return fapp (intConstDecl (name)); }
       inline Expr realConst (Expr name) { return fapp (realConstDecl (name)); }
-      
+      inline Expr adtConst (Expr name) { return fapp (adtConstDecl (name)); }
       
 
       inline bool isBoolConst (Expr v) { return isConst<BOOL_TY> (v); }
       inline bool isIntConst (Expr v) { return isConst<INT_TY> (v); }
       inline bool isRealConst (Expr v) { return isConst<REAL_TY> (v); }      
-
+      inline bool isAdtConst (Expr v) { return isConst<AD_TY> (v); }
       
       inline Expr typeOf (Expr v)
       {
@@ -2308,11 +2316,12 @@ namespace expr
           assert (isOpX<FDECL> (v->left ()));
           return rangeTy (v->left ());
         }
-        
-        if (isOpX<TRUE> (v) || isOpX<FALSE> (v)) return mk<BOOL_TY> (v->efac ());
+
+        if (isOpX<ITE>(v)) return typeOf(v->last());
+        if (isOp<BoolOp>(v) || isOp<ComparissonOp> (v)) return mk<BOOL_TY> (v->efac ());
         if (isOpX<MPZ> (v)) return mk<INT_TY> (v->efac ());
         if (isOpX<MPQ> (v)) return mk<REAL_TY> (v->efac ());
-         
+
         if (isOpX<BIND> (v)) return bind::type (v);
         
         if (isBoolVar (v) || isBoolConst (v))
@@ -2322,13 +2331,29 @@ namespace expr
         if (isRealVar (v) || isRealConst (v))
           return mk<REAL_TY> (v->efac ());
 
-        std::cerr << "WARNING: could not infer type of: " << *v << "\n";
+        if (isOp<NumericOp>(v)) return typeOf(v->left());
+
+        if (isOpX<STORE>(v)) return sort::arrayTy(typeOf(v->right()), typeOf(v->last()));
+        if (isOpX<SELECT>(v)) return typeOf(v->right());
+        if (isOpX<CONST_ARRAY>(v)) return sort::arrayTy(v->left(), typeOf(v->right()));
         
-        assert (0 && "Unreachable");
+//      std::cerr << "WARNING: could not infer type of: " << *v << "\n";
+//      assert (0 && "Unreachable");
+
         return Expr();    
       }
       inline Expr sortOf (Expr v) {return typeOf (v);}
-     
+
+      Expr mkMPZ(boost::multiprecision::cpp_int a, ExprFactory& efac)
+      {
+        return mkTerm (mpz_class (boost::lexical_cast<std::string>(a)), efac);
+      }
+
+      Expr mkMPZ(int a, ExprFactory& efac)
+      {
+        return mkTerm (mpz_class (a), efac);
+      }
+
       struct FAPP_PS
       {
 	static inline void print (std::ostream &OS,
@@ -2380,8 +2405,6 @@ namespace expr
         _args.insert (_args.end (), ++(fapp->args_begin ()), fapp->args_end ());
         return mknary<FAPP> (_args);
       }
-      
-      
     }
     
       
@@ -2396,8 +2419,16 @@ namespace expr
           return isOpX<MPZ> (e);
         }
       };
-      
-      
+
+      class IsFApp : public std::unary_function<Expr,bool>
+      {
+      public:
+        bool operator () (Expr e)
+        {
+          return isOpX<FAPP> (e) && isOpX<FDECL> (fname (e));
+        }
+      };
+
       /// returns true if an expression is a constant
       class IsConst : public std::unary_function<Expr,bool>
       {
@@ -2405,19 +2436,28 @@ namespace expr
         bool operator () (Expr e)
         {
           if (isOpX<VARIANT> (e)) return this->operator() (variant::mainVariant (e));
-          
+
           return isOpX<FAPP> (e) && e->arity () == 1 && isOpX<FDECL> (fname (e));
         }
       };
-        
-        /// returns true if an expression is a variable
-      class IsVar : public std::unary_function<Expr,bool>
+
+         /// returns true if an expression is a variable
+       class IsVar : public std::unary_function<Expr,bool>
+       {
+         public:
+             bool operator () (Expr e)
+             {
+                return isIntVar(e) || isRealVar(e) || isBoolVar(e) || isVar<ARRAY_TY> (e);
+             }
+       };
+
+      class IsSelect : public std::unary_function<Expr,bool>
       {
-        public:
-            bool operator () (Expr e)
-            {
-                return isIntVar(e) || isRealVar(e) || isBoolVar(e);
-            }
+      public:
+        bool operator () (Expr e)
+        {
+          return isOpX<SELECT> (e);
+        }
       };
     }
   }
@@ -2447,7 +2487,7 @@ namespace expr
 	  return hasher (var);
 	}
 	
-	void Print (std::ostream &OS) const { OS << "B" << var; }	
+	void Print (std::ostream &OS) const { OS << "B" << var; }
       };
       inline std::ostream &operator<< (std::ostream &OS, const BoundVar &b)
       {
@@ -2728,6 +2768,35 @@ namespace expr
       }
     };
 
+    struct RAVALLM: public std::unary_function<Expr,VisitAction>
+    {
+      ExprMap* m;
+
+      RAVALLM (ExprMap* _m) : m(_m) { }
+      VisitAction operator() (Expr exp) const
+      {
+        auto it = m->find(exp);
+        if (it != m->end()) return VisitAction::changeTo (it->second);
+        return VisitAction::doKids ();
+      }
+    };
+
+    struct RAVALLMR: public std::unary_function<Expr,VisitAction>
+    {
+      ExprMap* m;
+
+      RAVALLMR (ExprMap* _m) : m(_m) { }
+      VisitAction operator() (Expr exp) const
+      {
+        auto it = m->begin();
+        while (it != m->end())
+          if (it->second == exp)
+            return VisitAction::changeTo (it->first);
+          else ++it;
+        return VisitAction::doKids ();
+      }
+    };
+
     struct RAVSIMP: public std::unary_function<Expr,VisitAction>
     {
       Expr s;
@@ -2768,7 +2837,7 @@ namespace expr
 	if (filter (exp))
 	  { 
 	    *(out++) = exp;
-	    return VisitAction::skipKids ();
+	    return VisitAction::doKids ();
 	  }
 
 	return VisitAction::doKids ();
@@ -2845,20 +2914,45 @@ namespace expr
 	return VisitAction::doKids ();
       }
     };
-    
+
     template <typename T>
     struct ContainsOp : public std::unary_function<Expr,VisitAction>
     {
       bool found;
-      
+
       ContainsOp<T> () : found(false) {}
-      
+
       VisitAction operator() (Expr exp)
       {
         if (found || isOpX<T>(exp))
         {
           found = true;
           return VisitAction::skipKids ();
+        }
+        return VisitAction::doKids ();
+      }
+    };
+
+    struct HasUninterp : public std::unary_function<Expr,VisitAction>
+    {
+      bool found;
+
+      HasUninterp () : found(false) {}
+
+      VisitAction operator() (Expr exp)
+      {
+        if (found || isOpX<FAPP>(exp))
+        {
+          if (exp->arity() > 0)
+          {
+            if (isOpX<FDECL>(exp->arg(0)) &&
+                "BOOL" == boost::lexical_cast<std::string> (exp->arg(0)->last()) &&
+                exp->arg(0)->arity() > 2)
+            {
+              found = true;
+              return VisitAction::skipKids ();
+            }
+          }
         }
         return VisitAction::doKids ();
       }
@@ -2935,8 +3029,31 @@ namespace expr
   inline Expr replaceAll (Expr exp, ExprVector& s, ExprVector& t)
   {
     assert(s.size() == t.size());
+    if (s.empty()) return exp;
     RAVALL rav(&s, &t);
-    return dagVisit (rav, exp);
+    Expr tmp = dagVisit (rav, exp);
+    if (tmp == exp) return exp;
+    else return replaceAll(tmp, s, t);
+  }
+
+  // pairwise replacing
+  inline Expr replaceAll (Expr exp, ExprMap& m)
+  {
+    if (m.empty()) return exp;
+    RAVALLM rav(&m);
+    Expr tmp = dagVisit (rav, exp);
+    if (tmp == exp) return tmp;
+    else return replaceAll(tmp, m);
+  }
+
+  // pairwise replacing
+  inline Expr replaceAllRev (Expr exp, ExprMap& m)
+  {
+    if (m.empty()) return exp;
+    RAVALLMR rav(&m);
+    Expr tmp = dagVisit (rav, exp);
+    if (tmp == exp) return exp;
+    else return replaceAllRev(tmp, m);
   }
 
   /** Replace all occurrences of s by t while simplifying the result */
@@ -2945,7 +3062,6 @@ namespace expr
     RAVSIMP rav(s,t);
     return dagVisit (rav, exp);
   }
-
 
   // -- collect all sub-expressions of exp that satisfy the filter
   template <typename F, typename OutputIterator>
@@ -3026,12 +3142,19 @@ namespace expr
     CV cv(e2);
     dagVisit (cv, e1);
     return cv.found;
-  }  
+  }
 
   /** Returns true if e1 contains applications of T */
   template <typename M> inline bool containsOp (Expr e1)
   {
     ContainsOp<M> co;
+    dagVisit (co, e1);
+    return co.found;
+  }
+
+  inline bool hasUninterp (Expr e1)
+  {
+    HasUninterp co;
     dagVisit (co, e1);
     return co.found;
   }

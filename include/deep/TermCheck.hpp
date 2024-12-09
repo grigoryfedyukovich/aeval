@@ -2,7 +2,7 @@
 #define TERMCHECK__HPP__
 
 #include "Horn.hpp"
-#include "RndLearnerV2.hpp"
+#include "RndLearnerV3.hpp"
 #include "ae/SMTUtils.hpp"
 
 using namespace std;
@@ -56,9 +56,10 @@ namespace ufo
 
     ExprSet candConds;
     ExprSet jumpConds;
-    RndLearnerV2* exprsmpl;       // for samples used in various pieces of termination analysis
+    RndLearnerV3* exprsmpl;       // for samples used in various pieces of termination analysis
 
     int nontlevel;
+    int debug;
     bool lightweight;
     bool use_cex;
 
@@ -66,7 +67,7 @@ namespace ufo
 
     TermCheck (ExprFactory& _efac, EZ3& _z3, CHCs& _r, solver _slv, int _n, bool _l, bool _c) :
       efac(_efac), z3(_z3), u(efac), r(_r), slv(_slv), nontlevel(_n), lightweight(_l), use_cex(_c),
-      tr(NULL), fc(NULL), qr(NULL)
+      tr(NULL), fc(NULL), qr(NULL), debug(0)
     {
       for (int i = 0; i < 2; i++)
       {
@@ -163,38 +164,64 @@ namespace ufo
     /* Preps for syntax-guided synthesis of ranking functions and program refinements */
     void getSampleExprs()
     {
-      exprsmpl = new RndLearnerV2(efac, z3, r, false, true, lightweight);
-      for (auto& dcl: r.decls)
+      //r.print(true);
+      exprsmpl = new RndLearnerV3(efac, z3, r, 1000, false, false, false, false, false, false, debug); // New Freqhorn
+
+      bool doDisj, enableDataLearning = false;
+      int doProp = 0;
+
+      BndExpl bnd(r, debug);
+
+      map<Expr, ExprSet> candMap;
+      for (int i = 0; i < r.cycles.size(); i++)
       {
-        // actually, should be one iter here
+        Expr dcl = r.chcs[r.cycles[i][0]].srcRelation;
+        if (exprsmpl->initializedDecl(dcl)) continue;
         exprsmpl->initializeDecl(dcl);
-        exprsmpl->doSeedMining(dcl->arg(0), seeds);
+        Expr pref = bnd.compactPrefix(i);
+        ExprSet tmp;
+        getConj(pref, tmp);
+        for (auto & t : tmp)
+          if (hasOnlyVars(t, r.invVars[dcl]))
+            candMap[dcl].insert(t);
+
+        exprsmpl->mutateHeuristicEq(candMap[dcl], candMap[dcl], dcl, true);
+        exprsmpl->initializeAux(bnd, i, pref);
       }
+
+      if (enableDataLearning) exprsmpl->getDataCandidates(candMap);
+
+      for (auto & dcl: r.wtoDecls)
+      {
+        for (int i = 0; i < doProp; i++)
+          for (auto & a : candMap[dcl]) exprsmpl->propagate(dcl, a, true);
+        exprsmpl->addCandidates(dcl, candMap[dcl]);
+        exprsmpl->prepareSeeds(dcl, candMap[dcl]);
+      }
+
+      exprsmpl->bootstrap(doDisj);
 
       exprsmpl->calculateStatistics();
-      exprsmpl->categorizeCHCs();
-      //if (!lightweight) // GF: experimentally, it does not make much difference,
-                          // and for some examples it makes performance even worse
-      {
-        exprsmpl->houdini(seeds, true, false);
-        lemmas2add = conjoin(exprsmpl->getlearnedLemmas(0), efac);
-      }
+      exprsmpl->deferredPriorities();
+      lemmas2add = conjoin(exprsmpl->getlearnedLemmas(0), efac);
 
-      seedsPrepped.insert(mkTerm (mpz_class (*exprsmpl->getAllConsts().rbegin()), efac));
+      vector<cpp_int> temp = exprsmpl->getAllConsts();
+      auto rb = temp.rbegin();
 
+      seedsPrepped.insert(mkTerm (mpz_class (lexical_cast<string>(*rb)), efac));
       for (auto s : seeds)
       {
+        //if(debug) outs() << "    seed: " << s << "\n";
         s = convertToTerm(s);
         if (s == NULL) continue;
         if (find(std::begin(elements), std::end (elements), s) == std::end(elements))
           seedsPrepped.insert(s);
       }
-
       for (int i = 0; i < 100; i++) // could consider more than 100 mutants as well
         mutants.insert(exprsmpl->getFreshCand());
-
       for (auto m : mutants)
       {
+        //if(debug) outs() << "    mutant: " << m << "\n";
         m = convertToTerm(m);
         if (m == NULL) continue;
         if (find(std::begin(elements), std::end (elements), m) == std::end(elements) &&
@@ -265,12 +292,13 @@ namespace ufo
       vars.push_back(ghostVars[0]);
       ExprVector varsPr = invVarsPr;
       varsPr.push_back(ghostVarsPr[0]);
-      cand->addDecl(invDecl, vars);
+      cand->addDeclAndVars(invDecl, vars);
 
       tr_new.srcVars = vars;
       qr_new.srcVars = vars;
       fc_new.dstVars = varsPr;
       tr_new.dstVars = varsPr;
+
 
       ExprSet tmp;
       getConj(fc_new.body, tmp);
@@ -292,6 +320,9 @@ namespace ufo
       cand->addRule(&qr_new);
 
       cand->addFailDecl(qr->dstRelation);
+      cand->wtoSort();
+      cand->invVarsPrime[invDecl] = varsPr; // temp fix.
+
       return true;
     }
 
@@ -385,7 +416,7 @@ namespace ufo
       ExprVector varsPr = invVarsPr;
       varsPr.push_back(ghostVarsPr[0]);
       varsPr.push_back(ghostVarsPr[1]);
-      cand->addDecl(invDecl, vars);
+      cand->addDeclAndVars(invDecl, vars);
 
       tr_new.srcVars = vars;
       qr_new.srcVars = vars;
@@ -412,10 +443,13 @@ namespace ufo
       cand->addRule(&qr_new);
 
       cand->addFailDecl(qr->dstRelation);
+      cand->wtoSort();
+      cand->invVarsPrime[invDecl] = varsPr; // temp fix.
+
       return true;
     }
 
-    bool checkCand(bool goodtogo = true)
+    boost::tribool checkCand(bool goodtogo = true)
     {
       if (!goodtogo)
       {
@@ -424,7 +458,8 @@ namespace ufo
       }
 
       // cand->print();
-      bool res;
+      boost::tribool res;
+      if(debug) outs() << "Checking candidate\n";
 
       switch(slv)
       {
@@ -436,6 +471,12 @@ namespace ufo
 
       if (res)
       {
+        for(auto& hr: cand->chcs) {
+          if(hr.isFact) {
+            Expr grd = hr.body;
+            outs() << "Last successful guard: " << grd << "\n";
+          }
+        }
         outs () << "  ---> Terminates!\n";
       }
       else
@@ -465,10 +506,12 @@ namespace ufo
       return success;
     }
 
-    bool checkCandWithFreqhorn(int bnd = 20)
+    boost::tribool checkCandWithFreqhorn(int bnd = 20)
     {
+      bool doDisj, enableDataLearning = false;
+      int doProp = 0;
       // TODO: try reusing learnedLemmas between runs
-      BndExpl be(*cand);
+      BndExpl be(*cand, debug);
       bool bug = !(be.exploreTraces(2, bnd, false));
       if (bug)
       {
@@ -478,22 +521,50 @@ namespace ufo
       }
       else
       {
-        outs () << "  keep proving.. ";
-        RndLearnerV2 ds(efac, z3, *cand, true, true, false);
-        ds.categorizeCHCs();
+        outs () << "  keep proving.. \n";
+        RndLearnerV3 ds(efac, z3, *cand, 1000, false, false, false, false, false, false, debug); // New Freqhorn
+        //RndLearnerV2 ds(efac, z3, *cand, true, true, false); Old FreqHorn
+        if (!cand->hasCycles())
+        {
+          be.exploreTraces(1, cand->chcs.size(), true);
+          exit(0);
+        }
 
-        for (auto& dcl: cand->decls) ds.initializeDecl(dcl);
+        //cand->print(true);
+        map<Expr, ExprSet> candMap;
+        for (int i = 0; i < cand->cycles.size(); i++)
+        {
+          Expr dcl = cand->chcs[cand->cycles[i][0]].srcRelation;
+          if (ds.initializedDecl(dcl)) continue;
+          ds.initializeDecl(dcl);
+          Expr pref = be.compactPrefix(i);
+          ExprSet tmp;
+          getConj(pref, tmp);
+          for (auto & t : tmp)
+            if (hasOnlyVars(t, cand->invVars[dcl]))
+              candMap[dcl].insert(t);
 
-        for (auto& dcl: cand->decls) ds.doSeedMining (dcl->arg(0), cands);
+          ds.mutateHeuristicEq(candMap[dcl], candMap[dcl], dcl, true);
+          ds.initializeAux(be, i, pref);
+        }
 
-        bool success = ds.houdini(cands, true, false);
+        if (enableDataLearning) ds.getDataCandidates(candMap);
+        for (auto & dcl: cand->wtoDecls)
+        {
+          for (int i = 0; i < doProp; i++)
+            for (auto & a : candMap[dcl]) ds.propagate(dcl, a, true);
+          ds.addCandidates(dcl, candMap[dcl]);
+          ds.prepareSeeds(dcl, candMap[dcl]);
+        }
+
+        boost::tribool success = ds.bootstrap(false);
         if (!success)
         {
-          outs () << "  keep proving.. ";
+          outs () << "  keep proving.. \n";
           ds.calculateStatistics();
-          ds.prioritiesDeferred();
+          ds.deferredPriorities();
 
-          success = ds.synthesize(100, 3, 3);
+          success = ds.synthesize(1000, true); // Add ability to pass disj flag.
           cands = ds.getlearnedLemmas(0);
         }
         return success;
@@ -501,7 +572,7 @@ namespace ufo
     }
 
     ExprSet cands;
-    bool checkCandWithPDR(bool sp)
+    boost::tribool checkCandWithPDR(bool sp)
     {
       // experimentally augment encoding:
       if (lemmas2add != NULL)
@@ -509,7 +580,7 @@ namespace ufo
           if (r.srcRelation == invDecl)
             r.body = mk<AND>(r.body, lemmas2add);
 
-      bool res = cand->checkWith(sp);
+      boost::tribool res = cand->checkWithSpacer();
       if (!res)
       {
         Expr ce = cand->getCex().back();
@@ -519,9 +590,9 @@ namespace ufo
       return res;
     }
 
-    bool synthesizeRankingFunction()
+    boost::tribool synthesizeRankingFunction()
     {
-      bool res = false;
+      boost::tribool res = false;
       rankCEs = NULL;
 
       // check all elements first:
@@ -566,6 +637,7 @@ namespace ufo
       for (auto initCond : mutantsPrepped)
       {
         // TODO: could be done in batches
+        outs() << "initCond: " << initCond << "\n";
         ExprSet a; a.insert(initCond);
         outs() << "mutant #" << candConds.size() << ": " << *initCond;
         res = checkCand(assembleCand(a));
@@ -576,10 +648,10 @@ namespace ufo
       return res;
     }
 
-    bool synthesizeLexRankingFunction()
+    boost::tribool synthesizeLexRankingFunction()
     {
       if (lemmas2add == NULL) getSampleExprs();
-      bool res;
+      boost::tribool res;
 
       // gradual brute force.. needs more optimizations
       res = tryLexRankingFunctionCandidates(elements, elements, elements);
@@ -620,14 +692,14 @@ namespace ufo
       }
     }
 
-    bool checkNonterm()
+    boost::tribool checkNonterm()
     {
       // Check if there is nondeterminism in init (for statistics only)
       int nondeterministicIn = 0;
       // check if there is a nondeterminism in init
       for (auto & v : invVarsPr)
       {
-        nondeterministicIn += !u.hasOneModel(v, fc->body);
+        if(!u.hasOneModel(v, fc->body)) nondeterministicIn++;
         // TODO: optimize the algorithm such that deterministically assigned input variables don't get refined much
       }
       outs () << "level of nondeterminism in init: " << nondeterministicIn << " / "<< invVars.size() << "\n";
@@ -637,6 +709,7 @@ namespace ufo
       // Initially, check if we can enter the loop from the initial state
       Expr initCheck = mk<AND>(loopGuard, fc->body);
       initCheck = replaceAll(initCheck, invVarsPr, invVars);
+      outs() << "initCheck : \n\t----" << initCheck << "\n";
       if (!u.isSat(initCheck))
       {
         outs() << "\nLoop body is unreachable\nTerminates!\n";
@@ -659,6 +732,8 @@ namespace ufo
         return true;
       }
 
+      outs() << "After resolveTrNondeterminism\n";
+
       // Then, get some invariants and repeat
       if (lemmas2add == NULL) getSampleExprs();
       Expr loopGuardEnhanced = loopGuard;
@@ -674,12 +749,12 @@ namespace ufo
       }
 
       // try to refine the init conditions gradually:
-      bool res = resolveInNondeterminism(seeds, loopGuardEnhanced, 1, CEs);
+      boost::tribool res = resolveInNondeterminism(seeds, loopGuardEnhanced, 1, CEs);
       if (res) res = resolveInNondeterminism(mutants, loopGuardEnhanced, 1, CEs);
       return res;
     }
 
-    bool resolveInNondeterminism(ExprSet& refineCands, Expr loopGuardEnhanced, int depth, Expr CEs)
+    boost::tribool resolveInNondeterminism(ExprSet& refineCands, Expr loopGuardEnhanced, int depth, Expr CEs)
     {
       if (depth > nontlevel) return true;    // refinement becomes too complex
 
@@ -702,7 +777,7 @@ namespace ufo
         if (u.isSat(CEs, loopGuardEnhancedTry)) continue;
 
         Expr preCEs = CEs;
-        bool res = resolveTrNondeterminism(loopGuardEnhancedTry, CEs);
+        boost::tribool res = resolveTrNondeterminism(loopGuardEnhancedTry, CEs);
         if (! res) return false;
         else if (isOpX<TRUE>(CEs))
         {
@@ -716,7 +791,7 @@ namespace ufo
       return true;
     }
 
-    bool resolveTrNondeterminism(Expr refinedGuard, Expr& CEs)
+    boost::tribool resolveTrNondeterminism(Expr refinedGuard, Expr& CEs)
     {
       Expr trBody = tr->body;
       if (lemmas2add != NULL) trBody = mk<AND>(trBody, lemmas2add);
@@ -727,7 +802,7 @@ namespace ufo
       // try to prove universal non-termination
       if (slv == spacer || slv == muz)
       {
-        CHCs r1 = r;
+        CHCs& r1 = r;
         for (auto & a : r1.chcs)
           if (a.isFact) a.body = mk<AND>(renamedLoopGuard, a.body);
           else if (a.isInductive) a.body = updTrBody;
@@ -735,7 +810,7 @@ namespace ufo
 
         if (!lightweight)
         {
-          bool res = r1.checkWith(slv == spacer);
+          boost::tribool res = r1.checkWithSpacer();
           if (res && refinedGuard == loopGuard) outs () << "Trully universal\n";
 
           if (res)
@@ -756,7 +831,7 @@ namespace ufo
           {
             if (!u.isSat(updTrBody, b)) continue;
             for (auto & r : r1.chcs) if (r.isInductive) r.body = mk<AND>(updTrBody, b);
-            bool res = r1.checkWith(slv == spacer);
+            boost::tribool res = r1.checkWithSpacer();
             if (res)
             {
               outs () << "refined with " << *refinedGuard << " and " << *b << "\n";
@@ -771,7 +846,7 @@ namespace ufo
       }
       else
       {
-        bool res = u.implies(updTrBody, renamedLoopGuard);
+        boost::tribool res = u.implies(updTrBody, renamedLoopGuard);
         if (res && refinedGuard == loopGuard) outs () << "Trully universal\n";
         if (res)
         {
@@ -821,7 +896,7 @@ namespace ufo
     {
       outs() << "Transforming program such that each new iteration "
              << "corresponds to " << mrg << " original iterations\n";
-      ruleManager.mergeIterations(*ruleManager.decls.begin(), mrg);
+      ruleManager.copyIterations(*ruleManager.decls.begin(), mrg);
     }
     TermCheck a(efac, z3, ruleManager, slv, nonterm, lw, cex);
     a.checkPrerequisites();
@@ -856,7 +931,7 @@ namespace ufo
     }
     else if (rank == 3)
     {
-      bool res = a.synthesizeRankingFunction();
+      boost::tribool res = a.synthesizeRankingFunction();
       if (! res) a.synthesizeLexRankingFunction();
     }
   }
