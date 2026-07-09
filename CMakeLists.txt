@@ -60,15 +60,45 @@ else()
   set (Z3_DEBUG "")
 endif()
 
+find_program(Z3_PYTHON_EXECUTABLE NAMES python3 python)
+if (NOT Z3_PYTHON_EXECUTABLE)
+  message(FATAL_ERROR "Could not find python3 or python for configuring Z3")
+endif()
+
+set (Z3_ENV PYTHONPYCACHEPREFIX=${CMAKE_BINARY_DIR}/z3-pycache)
+if (APPLE)
+  if (CMAKE_OSX_SYSROOT)
+    if (IS_ABSOLUTE "${CMAKE_OSX_SYSROOT}")
+      set (Z3_OSX_SYSROOT "${CMAKE_OSX_SYSROOT}")
+    else()
+      execute_process(
+        COMMAND xcrun --sdk ${CMAKE_OSX_SYSROOT} --show-sdk-path
+        OUTPUT_VARIABLE Z3_OSX_SYSROOT
+        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    endif()
+  else()
+    execute_process(
+      COMMAND xcrun --show-sdk-path
+      OUTPUT_VARIABLE Z3_OSX_SYSROOT
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
+  endif()
+  if (Z3_OSX_SYSROOT)
+    list (APPEND Z3_ENV SDKROOT=${Z3_OSX_SYSROOT})
+  endif()
+  if (CMAKE_OSX_DEPLOYMENT_TARGET)
+    list (APPEND Z3_ENV MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET})
+  endif()
+endif()
+
 ExternalProject_Add(z3
   GIT_REPOSITORY  ${Z3_REPO}
   GIT_TAG ${Z3_TAG}
   BUILD_IN_SOURCE 1
   INSTALL_DIR ${CMAKE_BINARY_DIR}/run
-  CONFIGURE_COMMAND env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+  CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER} PYTHON=${Z3_PYTHON_EXECUTABLE} ${Z3_ENV}
   ./configure -p <INSTALL_DIR> -b build --staticlib ${Z3_DEBUG}
-  BUILD_COMMAND make -j3 -C build
-  INSTALL_COMMAND make -C build install
+  BUILD_COMMAND ${CMAKE_COMMAND} -E env ${Z3_ENV} make -j3 -C build
+  INSTALL_COMMAND ${CMAKE_COMMAND} -E env ${Z3_ENV} make -C build install
   COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_LIST_FILE}
   LOG_CONFIGURE 1
   LOG_INSTALL 1
