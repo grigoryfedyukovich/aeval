@@ -2,6 +2,7 @@
 #define RNDLEARNERV3__HPP__
 
 #include "RndLearnerV2.hpp"
+#include <deque>
 
 #ifdef HAVE_ARMADILLO
 #include "DataLearner.hpp"

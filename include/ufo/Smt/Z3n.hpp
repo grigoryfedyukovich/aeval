@@ -30,6 +30,7 @@ DM-0002198
 
 
 #include <sstream>
+#include <utility>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -447,7 +448,7 @@ namespace ufo
     {
       // -- only allow swap between models from the same context
       assert (&src.z3 == &dst.z3);
-      swap (src.model, dst.model);
+      std::swap (src.model, dst.model);
     }
     
     

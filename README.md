@@ -6,12 +6,23 @@ Satisfiability solver for constrained Horn clauses (CHC) based on <a href="https
 Installation
 ============
 
-Compiles as C++14 with gcc-7 (on Linux) and clang-1001 (on Mac). CMake builds Boost 1.91.0, <a href="https://gmplib.org/">GMP</a> 6.3.0, and Z3 4.16.0 from source when they are missing or too old. Additionally, armadillo package to get candidates from behaviors.
+Compiles as C++14. CMake builds Boost 1.91.0, <a href="https://gmplib.org/">GMP</a> 6.3.0, and Z3 4.16.0 from source when they are missing or too old. Z3 4.16.0 needs a recent C++ standard library; on Ubuntu 22.04, use GCC/G++ 13 or newer. Additionally, install the Armadillo package to get candidates from behaviors.
 
-* `cd aeval ; mkdir build ; cd build`
-* `cmake ../`
-* `make` to build missing dependencies
-* `make` (again) to build FreqHorn
+On Ubuntu 22.04, a typical setup is:
+
+* `sudo apt update`
+* `sudo apt install -y software-properties-common build-essential libarmadillo-dev`
+* `sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test`
+* `sudo apt update`
+* `sudo apt install -y gcc-13 g++-13`
+
+Out-of-tree build:
+
+* `mkdir build ; cd build`
+* `cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13 -DCMAKE_PREFIX_PATH=$PWD/deps -DZ3_VERSION=4.16.0 -DZ3_TAG=z3-4.16.0`
+* `cmake --build .` to build missing dependencies
+* `cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13 -DCMAKE_PREFIX_PATH=$PWD/deps -DZ3_VERSION=4.16.0 -DZ3_TAG=z3-4.16.0` again if CMake stopped after installing missing dependencies
+* `cmake --build .` again to build FreqHorn
 
 The binary of FreqHorn can be found at `build/tools/deep/`.
 Run `freqhorn --help` for the usage info.
