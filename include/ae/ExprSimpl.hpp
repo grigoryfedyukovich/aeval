@@ -192,6 +192,30 @@ namespace ufo
     return conjoin(cnjs, fla->getFactory());
   }
 
+  inline static void getKeyVars (Expr fla, Expr key, Expr &var)
+  {
+    if (isOpX<EQ>(fla) && isOpX<PLUS>(fla->right()) && fla->right()->right() == key)
+    {
+      var = fla->left();
+    }
+    else if (isOpX<EQ>(fla) && isOpX<NEQ>(fla->right()) &&
+             fla->right()->right() == mk<UN_MINUS>(key))
+    {
+      var = fla->left();
+    }
+    else if (isOpX<EQ>(fla) && isOpX<EQ>(fla->right()) &&
+             isOpX<UN_MINUS>(fla->right()->right()) &&
+             fla->right()->right()->left() == key)
+    {
+      var = fla->left();
+    }
+    else
+    {
+      for (unsigned i = 0; i < fla->arity(); i++)
+        getKeyVars(fla->arg(i), key, var);
+    }
+  }
+
   inline static void getArrInds (Expr a, ExprSet &inds)
   {
     if ((isOpX<SELECT>(a) || isOpX<STORE>(a))

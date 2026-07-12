@@ -1,17 +1,24 @@
-FreqHorn
-========
+TG
+==
 
-Satisfiability solver for constrained Horn clauses (CHC) based on <a href="https://github.com/Z3Prover/z3">Z3</a> SMT solver. It combines syntax-guided methods to inductive invariant synthesis with data learning and quantified reasoning over arrays. Find more details at <a href="http://www.cs.fsu.edu/~grigory/freqhorn-arrays.pdf">CAV'19</a> and <a href="http://www.cs.fsu.edu/~grigory/multi-freqhorn.pdf">FMCAD'18</a> papers.
+Test-generation tooling for constrained Horn clauses (CHC) based on the Z3 SMT solver.
+
+Publications
+============
+
+* <a href="https://doi.org/10.1007/978-3-031-78750-8_7">ATVA'24</a>
+* <a href="https://doi.org/10.1007/978-3-030-99527-0_14">TACAS'22</a>
+
 
 Installation
 ============
 
-Compiles as C++14. CMake builds Boost 1.91.0, <a href="https://gmplib.org/">GMP</a> 6.3.0, and Z3 4.16.0 from source when they are missing or too old. Z3 4.16.0 needs a recent C++ standard library; on Ubuntu 22.04, use GCC/G++ 13 or newer. Additionally, install the Armadillo package to get candidates from behaviors.
+Compiles as C++14. CMake builds Boost 1.91.0, GMP 6.3.0, and Z3 4.16.0 from source when they are missing or too old. Z3 4.16.0 needs a recent C++ standard library; on Ubuntu 22.04, use GCC/G++ 13 or newer.
 
 On Ubuntu 22.04, a typical setup is:
 
 * `sudo apt update`
-* `sudo apt install -y software-properties-common build-essential libarmadillo-dev`
+* `sudo apt install -y software-properties-common build-essential`
 * `sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test`
 * `sudo apt update`
 * `sudo apt install -y gcc-13 g++-13`
@@ -22,16 +29,12 @@ Out-of-tree build:
 * `cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13 -DCMAKE_PREFIX_PATH=$PWD/deps -DZ3_VERSION=4.16.0 -DZ3_TAG=z3-4.16.0`
 * `cmake --build .` to build missing dependencies
 * `cmake .. -DCMAKE_C_COMPILER=/usr/bin/gcc-13 -DCMAKE_CXX_COMPILER=/usr/bin/g++-13 -DCMAKE_PREFIX_PATH=$PWD/deps -DZ3_VERSION=4.16.0 -DZ3_TAG=z3-4.16.0` again if CMake stopped after installing missing dependencies
-* `cmake --build .` again to build FreqHorn
+* `cmake --build .` again to build the tools
 
-The binary of FreqHorn can be found at `build/tools/deep/`.
-Run `freqhorn --help` for the usage info.
-
-FreqHorn does not automatically find counterexamples (unless the CHC system can be trivially simplified), but its supplementary tool `expl` tool does. We recommend running `freqhorn` and `expl` concurrently.
-
-The tools print `Success ...` if the system is satisfiable.
+The TG binary can be found at `build/tools/tg/`.
+Run `tg --help` for the usage info.
 
 Benchmarks
 ==========
 
-Collection of the SMT-LIB2 translations of the satisfiable CHC system can be found at `bench_horn` and `bench_horn_multiple`. FreqHorn is expected to eventually discover solutions for the systems. On the other hand, there are several unsatisfiable CHC systems at `bench_horn_cex`, for which `freqhorn` is expected to diverge (but `expl` should find counterexamples).
+Collection of SMT-LIB2 translations can be found in the benchmark directories.

@@ -22,6 +22,11 @@ namespace ufo
     ExprMap origSrcVars;
 
     Expr body;
+    Expr bodyShort;
+    ExprVector bodies;
+    int bodiesSz = 0;
+    vector<int> covered;
+    bool usesKeys = false;
 
     Expr srcRelation;
     Expr dstRelation;
@@ -50,6 +55,13 @@ namespace ufo
       for (auto it = locVars.begin(); it != locVars.end();)
         if (contains(body, *it)) ++it;
         else it = locVars.erase(it);
+    }
+
+    Expr getBody(bool sh = false)
+    {
+      if (sh && bodiesSz == 1 && bodyShort != NULL)
+        return bodyShort;
+      return body;
     }
 
     bool splitBody ()
@@ -106,17 +118,80 @@ namespace ufo
     map<Expr, vector<vector<int>>> cycles, prefixes;
     vector<vector<int>> acyclic;
     ExprVector seqPoints;
-    // vector<vector<int>> prefixes, cycles;  // for cycles
     map<Expr, bool> hasArrays;
+    map<Expr, vector<int>> iterators;
     bool hasAnyArrays, hasBV = false;
     bool hasQuery = false;
     int debug;
     set<int> chcsToCheck1, chcsToCheck2, toEraseChcs;
     int glob_ind = 0;
+    size_t nextCycle = 0;
     ExprSet origVrs;
 
     CHCs(ExprFactory &efac, EZ3 &z3, int d = false) :
       u(efac), m_efac(efac), m_z3(z3), hasAnyArrays(false), debug(d) {};
+
+    void prepareTGBodies(set<int> keys = {}, bool doArithm = true)
+    {
+      ExprVector vars2keep;
+      for (auto & hr : chcs)
+      {
+        hr.bodies.clear();
+        hr.covered.clear();
+        hr.usesKeys = false;
+
+        ExprSet kvars;
+        for (auto it = keys.begin(); it != keys.end(); ++it)
+        {
+          Expr key = mkMPZ(*it, m_efac);
+          Expr var = NULL;
+          getKeyVars(hr.body, key, var);
+          if (var != NULL) kvars.insert(var);
+        }
+
+        u.flatten(hr.body, hr.bodies, false, vars2keep,
+                  [](Expr a, ExprVector&){ return a; });
+        if (hr.bodies.empty())
+          hr.bodies.push_back(hr.body);
+        hr.body = disjoin(hr.bodies, m_efac);
+
+        ExprSet newBodies;
+        auto kb = kvars.begin(), ke = kvars.end();
+        for (auto it = hr.bodies.begin(); it != hr.bodies.end(); )
+        {
+          bool replaced = false;
+          ExprSet cnjs;
+          getConj(*it, cnjs);
+          for (auto & c : cnjs)
+          {
+            if (!isOpX<GEQ>(c) && !isOpX<LEQ>(c)) continue;
+            auto l = c->left(), r = c->right();
+            bool mentionsKeyVar = find(kb, ke, l) != ke || find(kb, ke, r) != ke;
+            if (!mentionsKeyVar) continue;
+            replaced = true;
+
+            newBodies.insert(replaceAll(*it, c, mk<EQ>(l, r)));
+            if (isOpX<GEQ>(c))
+              newBodies.insert(replaceAll(*it, c, mk<GT>(l, r)));
+            else
+              newBodies.insert(replaceAll(*it, c, mk<LT>(l, r)));
+          }
+          if (replaced) it = hr.bodies.erase(it);
+          else ++it;
+        }
+        hr.bodies.insert(hr.bodies.end(), newBodies.begin(), newBodies.end());
+        hr.body = disjoin(hr.bodies, m_efac);
+
+        if (hr.bodies.size() > 1)
+        {
+          hr.bodyShort = eliminateQuantifiers(hr.body, hr.locVars, doArithm);
+          hr.shrinkLocVars();
+        }
+
+        hr.usesKeys = !kvars.empty();
+        hr.bodiesSz = hr.bodies.size();
+      }
+    }
 
     bool isFapp (Expr e)
     {
@@ -420,6 +495,105 @@ namespace ufo
         print(debug >= 4, true);
       }
       return true;
+    }
+
+    bool parse(string smt, bool doElim, set<int> keys, bool doArithm = true)
+    {
+      bool res = parse(smt, doElim, doArithm);
+      if (res) prepareTGBodies(keys, doArithm);
+      return res;
+    }
+
+    void reParse(bool lb = false, bool cycl = true)
+    {
+      vector<HornRuleExt> chcsNew;
+      set<int> toErase;
+      ExprSet relsToErase;
+
+      for (int i = 0; i < chcs.size(); i++)
+      {
+        auto & hr = chcs[i];
+        if (hr.bodies.empty())
+          hr.bodies.push_back(hr.body);
+
+        hr.bodiesSz = hr.bodies.size();
+        if (hr.bodiesSz == 0)
+        {
+          relsToErase.insert(hr.dstRelation);
+          toErase.insert(i);
+          continue;
+        }
+
+        if (!lb && hr.bodiesSz > 1)
+        {
+          toErase.insert(i);
+          for (auto & b : hr.bodies)
+          {
+            auto n = hr;
+            n.body = b;
+            n.bodies.clear();
+            n.bodies.push_back(b);
+            n.bodiesSz = 1;
+            n.covered.clear();
+            chcsNew.push_back(n);
+          }
+        }
+        else if (lb && hr.bodiesSz > 1)
+        {
+          for (int j = 0; j < hr.bodies.size(); j++)
+          {
+            hr.locVars.push_back(bind::boolConst(
+              mkTerm<string> ("_aux_" + lexical_cast<string>(j), m_efac)));
+            hr.bodies[j] = mk<AND>(hr.locVars.back(), hr.bodies[j]);
+          }
+          hr.body = disjoin(hr.bodies, m_efac);
+        }
+      }
+
+      if (cycl || !lb)
+      {
+        for (auto it = toErase.rbegin(); it != toErase.rend(); ++it)
+          chcs.erase(chcs.begin() + *it);
+        chcs.insert(chcs.end(), chcsNew.begin(), chcsNew.end());
+
+        for (auto & r : relsToErase)
+        {
+          bool found = false;
+          for (auto & c : chcs)
+            found |= (c.srcRelation == r || c.dstRelation == r);
+          if (!found)
+          {
+            for (auto it = decls.begin(); it != decls.end(); )
+              if ((*it)->left() == r) it = decls.erase(it);
+              else ++it;
+          }
+        }
+      }
+
+      if (cycl)
+      {
+        outgs.clear();
+        acyclic.clear();
+        cycles.clear();
+        prefixes.clear();
+        loopheads.clear();
+        nextCycle = 0;
+        wtoCHCs.clear();
+        dwtoCHCs.clear();
+        wtoDecls.clear();
+        cycleSearchDone = false;
+        for (int i = 0; i < chcs.size(); i++)
+          outgs[chcs[i].srcRelation].push_back(i);
+        findCycles();
+        dwtoCHCs = wtoCHCs;
+        for (auto it = dwtoCHCs.begin(); it != dwtoCHCs.end();)
+          if ((*it)->isQuery) it = dwtoCHCs.erase(it);
+          else ++it;
+      }
+    }
+
+    void propagateInvs(ExprMap&)
+    {
     }
 
     bool eliminateTrivTrueOrFalse()
@@ -922,6 +1096,15 @@ namespace ufo
       return (cycles.size() > 0);
     }
 
+    Expr getNextCycle()
+    {
+      if (!hasCycles()) return NULL;
+      auto it = cycles.begin();
+      std::advance(it, nextCycle % cycles.size());
+      nextCycle++;
+      return it->first;
+    }
+
     void getAllTraces (Expr src, Expr dst, int len, vector<int> trace,
                 vector<vector<int>>& traces, bool once = false)
     {
@@ -994,6 +1177,7 @@ namespace ufo
       ExprVector endRels;
       outgs.clear(); acyclic.clear(); cycles.clear(); allCHCs.clear();
       prefixes.clear(); seqPoints.clear(); wtoCHCs.clear();
+      nextCycle = 0;
       for (int i = 0; i < chcs.size(); i++)
       {
         outgs[chcs[i].srcRelation].push_back(i);
@@ -1307,10 +1491,28 @@ namespace ufo
       }
     }
 
-    void serialize ()
+    Expr getRelationApp(Expr relation, ExprVector& vars)
     {
-      std::ofstream enc_chc;
-      enc_chc.open("chc.smt2");
+      for (auto & d : decls)
+        if (d->left() == relation)
+          return fapp(d, vars);
+
+      errs () << "Could not find declaration for " << relation << "\n";
+      exit (1);
+    }
+
+    void serializeRule(std::ofstream& enc_chc, HornRuleExt& c)
+    {
+      Expr src = c.isFact ? mk<TRUE>(m_efac) : getRelationApp(c.srcRelation, c.srcVars);
+      Expr dst = c.isQuery ? mk<FALSE>(m_efac) : getRelationApp(c.dstRelation, c.dstVars);
+
+      enc_chc << "(assert ";
+      u.print(mkQFla(mk<IMPL>(mk<AND>(src, c.body), dst), true), enc_chc);
+      enc_chc << ")\n\n";
+    }
+
+    void serializeDecls(std::ofstream& enc_chc)
+    {
       enc_chc << "(set-logic HORN)\n";
       for (auto & d : decls)
       {
@@ -1323,43 +1525,40 @@ namespace ufo
         enc_chc << ") Bool)\n";
       }
       enc_chc << "\n";
-      for (auto & c : chcs)
-      {
-        Expr src, dst;
-        if (c.isFact)
-        {
-          src = mk<TRUE>(m_efac);
-        }
-        else
-        {
-          for (auto & d : decls)
-          {
-            if (d->left() == c.srcRelation)
-            {
-              src = fapp(d, c.srcVars);
-              break;
-            }
-          }
-        }
-        if (c.isQuery)
-        {
-          dst = mk<FALSE>(m_efac);
-        }
-        else
-        {
-          for (auto & d : decls)
-          {
-            if (d->left() == c.dstRelation)
-            {
-              dst = fapp(d, c.dstVars);
-              break;
-            }
-          }
-        }
+    }
 
+    void serialize ()
+    {
+      std::ofstream enc_chc;
+      enc_chc.open("chc.smt2");
+      serializeDecls(enc_chc);
+      for (auto & c : chcs)
+        serializeRule(enc_chc, c);
+      enc_chc << "(check-sat)\n";
+    }
+
+    void serialize (string pref, int extr)
+    {
+      std::ofstream enc_chc;
+      enc_chc.open(pref + "_" + lexical_cast<string>(extr) + ".smt2");
+      serializeDecls(enc_chc);
+      for (int i = 0; i < chcs.size(); i++)
+      {
+        auto & c = chcs[i];
+        if (c.isQuery) continue;
+        Expr src = c.isFact ? mk<TRUE>(m_efac) : getRelationApp(c.srcRelation, c.srcVars);
         enc_chc << "(assert ";
-        u.print(mkQFla(mk<IMPL>(mk<AND>(src, c.body), dst), true), enc_chc);
+        u.print(mkQFla(mk<IMPL>(mk<AND>(src, c.body),
+                            getRelationApp(c.dstRelation, c.dstVars)), true), enc_chc);
         enc_chc << ")\n\n";
+
+        if (i == extr)
+        {
+          enc_chc << "; query\n";
+          enc_chc << "(assert ";
+          u.print(mkQFla(mk<IMPL>(mk<AND>(src, c.body), mk<FALSE>(m_efac)), true), enc_chc);
+          enc_chc << ")\n\n";
+        }
       }
       enc_chc << "(check-sat)\n";
     }

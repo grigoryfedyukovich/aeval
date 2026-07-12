@@ -15,17 +15,31 @@ namespace ufo
 
     ExprFactory &efac;
     EZ3 z3;
-    ZSolver<EZ3> smt;
+    vector<ZSolver<EZ3>> smt;
+    vector<ExprVector> pushed;
     bool can_get_model;
     ZSolver<EZ3>::Model* m;
+    int slv = -1;
+    unsigned timeout = 0;
+
+    void resetSolver()
+    {
+      slv = smt.size();
+      if (timeout == 0)
+        smt.push_back(ZSolver<EZ3>(z3));
+      else
+        smt.push_back(ZSolver<EZ3>(z3, timeout));
+      pushed.push_back({});
+      smt[slv].reset();
+    }
 
   public:
 
     SMTUtils (ExprFactory& _efac) :
-      efac(_efac), z3(efac), smt (z3), can_get_model(0), m(NULL) {}
+      efac(_efac), z3(efac), can_get_model(0), m(NULL) {}
 
     SMTUtils (ExprFactory& _efac, unsigned _to) :
-      efac(_efac), z3(efac), smt (z3, _to), can_get_model(0), m(NULL) {}
+      efac(_efac), z3(efac), can_get_model(0), m(NULL), timeout(_to) {}
 
     boost::tribool eval(Expr v, ZSolver<EZ3>::Model* m1)
     {
@@ -46,7 +60,8 @@ namespace ufo
     ZSolver<EZ3>::Model* getModelPtr()
     {
       if (!can_get_model) return NULL;
-      if (m == NULL) m = smt.getModelPtr();
+      if (slv < 0) return NULL;
+      if (m == NULL) m = smt[slv].getModelPtr();
       return m;
     }
 
@@ -77,13 +92,14 @@ namespace ufo
       return conjoin (eqs, efac);
     }
 
-    Expr lastCand;
+    ExprSet allVars;
     Expr getModel()
     {
       if (!can_get_model)
         return NULL;
-      ExprSet allVars;
-      filter (lastCand, bind::IsConst (), inserter (allVars, allVars.begin()));
+      allVars.clear();
+      for (auto & c : pushed[slv])
+        filter (c, bind::IsConst (), inserter (allVars, allVars.begin()));
       return getModel(allVars);
     }
 
@@ -100,29 +116,29 @@ namespace ufo
       while (true)
       {
         getModel(vars, e);
-        smt.assertExpr(mk<T>(v, e[v]));
+        smt[slv].assertExpr(mk<T>(v, e[v]));
         if (m != NULL) { free(m); m = NULL; }
-        auto res = smt.solve();
+        auto res = smt[slv].solve();
         if (!res || indeterminate(res)) return;
       }
     }
 
     template <typename T> boost::tribool isSat(T& cnjs, bool reset=true)
     {
+      allVars.clear();
       if (m != NULL) { free(m); m = NULL; }
-      if (reset) smt.reset();
-      if (cnjs.empty())
+      if (reset || slv < 0)
       {
-        lastCand = NULL;
-        can_get_model = false;
-        return true;
+        resetSolver();
       }
-      else
+      for (auto & c : cnjs)
       {
-        lastCand = conjoin(cnjs, efac);
-        smt.assertExpr(lastCand);
+        filter (c, bind::IsConst (), inserter (allVars, allVars.begin()));
+        smt[slv].push();
+        smt[slv].assertExpr(c);
+        pushed[slv].push_back(c);
       }
-      boost::tribool res = smt.solve ();
+      boost::tribool res = smt[slv].solve ();
       can_get_model = res ? true : false;
       return res;
     }
@@ -168,8 +184,7 @@ namespace ufo
      */
     boost::tribool isSat(Expr a, bool reset=true)
     {
-      ExprSet cnjs;
-      getConj(a, cnjs);
+      ExprSet cnjs = {a};
       return isSat(cnjs, reset);
     }
 
@@ -178,7 +193,42 @@ namespace ufo
      */
     boost::tribool isSatIncrem(ExprVector& v, int& sz)
     {
-      sz = 0;
+      int csz = 0;
+      int cslv = 0;
+      for (int i = 0; i < pushed.size(); i++)
+      {
+        int j = 0;
+        while (j < v.size() && j < pushed[i].size())
+        {
+          if (v[j] != pushed[i][j]) break;
+          j++;
+        }
+        if (j > csz)
+        {
+          csz = j;
+          cslv = i;
+        }
+      }
+      if (csz > v.size() / 3)
+      {
+        sz = csz;
+        slv = cslv;
+        int psz = pushed[slv].size();
+        if (psz > sz)
+        {
+          smt[slv].pop(psz - sz);
+          pushed[slv].resize(sz);
+        }
+        if (sz == v.size())
+        {
+          m = NULL;
+          boost::tribool res = smt[slv].solve();
+          can_get_model = res ? true : false;
+          return res;
+        }
+      }
+      else sz = 0;
+
       while (sz < v.size())
       {
         auto res = isSat(v[sz], sz == 0);
@@ -224,6 +274,26 @@ namespace ufo
       if (isOpX<FALSE>(a)) return true;
       if (isOpX<NEQ>(a) && a->left() == a->right()) return true;
       return !isSat(a);
+    }
+
+    void pop(int sz = 1)
+    {
+      if (m != NULL) { free(m); m = NULL; }
+      if (slv >= 0 && sz > 0)
+      {
+        smt[slv].pop(sz);
+        pushed[slv].resize(pushed[slv].size() - sz);
+      }
+      can_get_model = false;
+    }
+
+    boost::tribool reSolve(int sz = 0)
+    {
+      if (m != NULL) { free(m); m = NULL; }
+      if (sz > 0) pop(sz);
+      boost::tribool res = smt[slv].solve();
+      can_get_model = res ? true : false;
+      return res;
     }
 
     /**
@@ -471,9 +541,10 @@ namespace ufo
       filter (exp, bind::IsConst (), back_inserter (cnstr_vars));
       if (cnstr_vars.size() == 1)
       {
-        smt.reset();
-        smt.assertExpr (exp);
-        if (smt.solve ()) {
+        resetSolver();
+        smt[slv].assertExpr(exp);
+        if (smt[slv].solve()) {
+          can_get_model = true;
           getModelPtr();
           if (m == NULL) return exp;
           return mk<EQ>(cnstr_vars[0], m->eval(cnstr_vars[0]));
@@ -565,7 +636,7 @@ namespace ufo
     bool flatten(Expr fla, ExprVector& prjcts, bool splitEqs, ExprVector& vars,
                  function<Expr(Expr, ExprVector& vars)> qe) // lazy DNF-ization
     {
-      smt.reset();
+      resetSolver();
       Expr tmp = fla;
       while (isSat(tmp, false))
       {
